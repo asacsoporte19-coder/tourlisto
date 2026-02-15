@@ -121,23 +121,9 @@ export default function FloatingNav() {
                     <button
                         onClick={() => { setIsSecurityOpen(true); setIsMoreOpen(false); }}
                         style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", border: "none", background: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
-                        className="text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 rounded-lg transition-colors"
+                        className="text-gray-300 hover:bg-white/5 rounded-lg transition-colors"
                     >
                         <Lock size={18} /> Seguridad
-                    </button>
-
-                    <div className="h-px bg-gray-100 dark:bg-white/10 my-1" />
-
-                    <button
-                        onClick={() => {
-                            console.log("FloatingNav: Theme button clicked");
-                            toggleTheme();
-                        }}
-                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", border: "none", background: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
-                        className="text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 rounded-lg transition-colors"
-                    >
-                        {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-                        {theme === 'dark' ? 'Modo Día' : 'Modo Noche'}
                     </button>
                 </div>
             )}
