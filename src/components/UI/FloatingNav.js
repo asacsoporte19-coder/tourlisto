@@ -37,7 +37,7 @@ export default function FloatingNav() {
                 width: "90%",
                 maxWidth: "400px"
             }}>
-                <nav className="bg-white/95 dark:bg-black/40 backdrop-blur-xl border border-gray-200/50 dark:border-white/10 shadow-xl dark:shadow-none transition-all duration-300" style={{
+                <nav className="bg-white dark:bg-black/40 backdrop-blur-xl border border-gray-300 dark:border-white/10 shadow-2xl dark:shadow-none transition-all duration-300" style={{
                     padding: "0.75rem",
                     borderRadius: "2rem",
                     display: "flex",
@@ -54,7 +54,7 @@ export default function FloatingNav() {
                                 style={{
                                     position: "relative",
                                     padding: "0.5rem",
-                                    color: isActive ? "var(--primary)" : "#6b7280",
+                                    color: isActive ? "var(--primary)" : "#1f2937", // Gray-800 for better visibility
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center"
