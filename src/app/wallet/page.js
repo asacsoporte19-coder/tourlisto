@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
-import { Wallet, Plus, Trash2, ArrowRight, CheckCircle } from "lucide-react";
+import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User } from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
@@ -14,8 +14,12 @@ export default function WalletPage() {
     const [members, setMembers] = useState([]); // [{ id, name, ... }]
     const [expenses, setExpenses] = useState([]);
 
+    // Cache for all user profiles involved in expenses, not just current members
+    const [profileCache, setProfileCache] = useState({});
+
     // Helper
     const formatCurrency = (amount) => {
+        if (isNaN(amount)) return "0,00 €";
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
 
@@ -32,28 +36,20 @@ export default function WalletPage() {
 
         const loadData = async () => {
             setLoading(true);
-            // 1. Fetch Members
+
+            // 1. Fetch Trip Members (Active participants)
             const { data: memberData, error: memberError } = await supabase
                 .from('trip_members')
                 .select('user_id, profiles(full_name, email)')
                 .eq('trip_id', activeTrip.id);
 
-            if (memberError) console.error(memberError);
+            if (memberError) console.error("Error fetching members:", memberError);
 
-            const mappedMembers = (memberData || []).map(m => ({
+            const activeMembers = (memberData || []).map(m => ({
                 id: m.user_id,
                 name: m.profiles?.full_name || m.profiles?.email || 'Desconocido'
             }));
-            setMembers(mappedMembers);
-
-            // Set default paidBy as current user if in list
-            if (user && mappedMembers.find(m => m.id === user.id)) {
-                setPaidBy(user.id);
-                setSplitWith(mappedMembers.map(m => m.id)); // Default split with all
-            } else if (mappedMembers.length > 0) {
-                setPaidBy(mappedMembers[0].id);
-                setSplitWith(mappedMembers.map(m => m.id));
-            }
+            setMembers(activeMembers);
 
             // 2. Fetch Expenses
             const { data: expenseData, error: expenseError } = await supabase
@@ -62,8 +58,54 @@ export default function WalletPage() {
                 .eq('trip_id', activeTrip.id)
                 .order('date', { ascending: false });
 
-            if (expenseError) console.error(expenseError);
-            setExpenses(expenseData || []);
+            if (expenseError) console.error("Error fetching expenses:", expenseError);
+            const loadedExpenses = expenseData || [];
+            setExpenses(loadedExpenses);
+
+            // 3. Resolve ALL needed profiles (Active members + anyone else in expenses)
+            // Collect all unique user IDs from expenses (paid_by and split_with)
+            const allUserIds = new Set();
+            activeMembers.forEach(m => allUserIds.add(m.id));
+
+            loadedExpenses.forEach(e => {
+                if (e.paid_by) allUserIds.add(e.paid_by);
+                if (Array.isArray(e.split_with)) {
+                    e.split_with.forEach(id => allUserIds.add(id));
+                }
+            });
+
+            // If we have IDs that are not in activeMembers, fetch them
+            const knownIds = new Set(activeMembers.map(m => m.id));
+            const unknownIds = [...allUserIds].filter(id => !knownIds.has(id));
+
+            let extraProfiles = [];
+            if (unknownIds.length > 0) {
+                const { data: profileData, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, email')
+                    .in('id', unknownIds);
+
+                if (profileError) console.error("Error fetching extra profiles:", profileError);
+                if (profileData) extraProfiles = profileData;
+            }
+
+            // Build Profile Cache
+            const newCache = {};
+            // Add active members
+            activeMembers.forEach(m => newCache[m.id] = m.name);
+            // Add extra profiles
+            extraProfiles.forEach(p => newCache[p.id] = p.full_name || p.email || 'Usuario');
+
+            setProfileCache(newCache);
+
+            // Set Form Defaults
+            if (user && activeMembers.find(m => m.id === user.id)) {
+                setPaidBy(user.id);
+                setSplitWith(activeMembers.map(m => m.id));
+            } else if (activeMembers.length > 0) {
+                setPaidBy(activeMembers[0].id);
+                setSplitWith(activeMembers.map(m => m.id));
+            }
 
             setLoading(false);
         };
@@ -71,8 +113,8 @@ export default function WalletPage() {
         loadData();
     }, [activeTrip, user]);
 
-    // Helpers to get name
-    const getName = (id) => members.find(m => m.id === id)?.name || '...';
+    // Helpers to get name with fallback
+    const getName = (id) => profileCache[id] || members.find(m => m.id === id)?.name || 'Usuario desconocido';
 
     const addExpense = async () => {
         if (!desc || !amount || splitWith.length === 0 || !paidBy) return;
@@ -87,8 +129,6 @@ export default function WalletPage() {
             type: 'expense'
         };
 
-        // Optimistic UI? 
-        // Better to wait for DB ID for deletion logic, but can show loading.
         const { data, error } = await supabase.from('expenses').insert([newExpense]).select().single();
 
         if (error) {
@@ -114,49 +154,83 @@ export default function WalletPage() {
         }
     };
 
-    // --- Debt Logic (Adapted for IDs) ---
-    const calculateDebts = () => {
-        let balances = {}; // { userId: amount }
-        members.forEach(m => balances[m.id] = 0);
+    // --- Debt Logic ---
+    const calculateStats = () => {
+        let balances = {}; // { userId: netBalance } (+ means owed to them, - means they owe)
+        let totalPaid = {}; // { userId: amountPaid }
+        let totalShare = {}; // { userId: amountConsumed }
+
+        // Initialize for all known people in cache to avoid missing keys
+        Object.keys(profileCache).forEach(id => {
+            balances[id] = 0;
+            totalPaid[id] = 0;
+            totalShare[id] = 0;
+        });
 
         expenses.forEach(e => {
+            // Guard clauses for corrupt data
+            if (!e.amount || isNaN(e.amount)) return;
+            if (!e.paid_by) return;
+
+            // Ensure keys exist (in case cache missed something)
+            if (balances[e.paid_by] === undefined) { balances[e.paid_by] = 0; totalPaid[e.paid_by] = 0; totalShare[e.paid_by] = 0; }
+
             if (e.type === 'settlement') {
-                // Settlement: paid_by paid to split_with[0]
-                // So paid_by is +, split_with is - (they received money, so their balance debt decreases... wait)
-                // If A pays B 100 to settle.
-                // A spent 100 (Creditor in generic sense of transaction, but reduces A's debt).
-                // It treats as simple transfer. 
-                // Let's model it: A pays B. A's balance += 100. B's balance -= 100.
-                if (balances[e.paid_by] !== undefined) balances[e.paid_by] += e.amount;
-                if (balances[e.split_with[0]] !== undefined) balances[e.split_with[0]] -= e.amount;
+                // Settlement: A pays B. 
+                // A paid X. A's balance increases (or debt decreases).
+                // B received X. B's balance decreases (or debt increases/credit reduces).
+                if (e.split_with && e.split_with.length > 0) {
+                    const receiverId = e.split_with[0];
+                    if (balances[receiverId] === undefined) { balances[receiverId] = 0; totalPaid[receiverId] = 0; totalShare[receiverId] = 0; }
+
+                    balances[e.paid_by] += e.amount;
+                    balances[receiverId] -= e.amount;
+                }
                 return;
             }
 
-            const paidAmount = e.amount;
-            const splitAmount = paidAmount / e.split_with.length;
+            // Normal Expense
+            const paidAmount = parseFloat(e.amount);
 
-            if (balances[e.paid_by] !== undefined) balances[e.paid_by] += paidAmount;
+            // Track total paid
+            totalPaid[e.paid_by] += paidAmount;
+            balances[e.paid_by] += paidAmount;
 
-            e.split_with.forEach(memberId => {
-                if (balances[memberId] !== undefined) balances[memberId] -= splitAmount;
-            });
+            // Split logic
+            if (e.split_with && Array.isArray(e.split_with) && e.split_with.length > 0) {
+                const splitAmount = paidAmount / e.split_with.length;
+
+                e.split_with.forEach(memberId => {
+                    if (balances[memberId] === undefined) { balances[memberId] = 0; totalPaid[memberId] = 0; totalShare[memberId] = 0; }
+
+                    balances[memberId] -= splitAmount;
+                    totalShare[memberId] += splitAmount;
+                });
+            } else {
+                // Formatting error safe-guard: if no split_with, assume paid for self? 
+                // For now, if empty, we do nothing to others, payer just paid (and balance goes up? No, balance shouldn't change if for self)
+                // If paid for self: paid +100, consumed -100. Net 0.
+                totalShare[e.paid_by] += paidAmount;
+                balances[e.paid_by] -= paidAmount;
+            }
         });
 
-        // Separate Debtors and Creditors
+        // Separate Debtors and Creditors for simplified debts
         let debtors = [];
         let creditors = [];
 
         Object.entries(balances).forEach(([id, amount]) => {
+            // Filter out negligible amounts
             if (amount < -0.01) debtors.push({ id, amount });
             if (amount > 0.01) creditors.push({ id, amount });
         });
 
-        debtors.sort((a, b) => a.amount - b.amount);
-        creditors.sort((a, b) => b.amount - a.amount);
+        debtors.sort((a, b) => a.amount - b.amount); // Ascending (most negative first)
+        creditors.sort((a, b) => b.amount - a.amount); // Descending (most positive first)
 
-        let debts = [];
         let i = 0;
         let j = 0;
+        let simplifiedDebts = [];
 
         while (i < debtors.length && j < creditors.length) {
             let debtor = debtors[i];
@@ -164,7 +238,7 @@ export default function WalletPage() {
 
             let amount = Math.min(Math.abs(debtor.amount), creditor.amount);
 
-            debts.push({
+            simplifiedDebts.push({
                 from: debtor.id,
                 to: creditor.id,
                 amount: amount
@@ -177,30 +251,10 @@ export default function WalletPage() {
             if (creditor.amount < 0.01) j++;
         }
 
-        return debts;
+        return { simplifiedDebts, totalPaid, totalShare, balances };
     };
 
-    const debts = calculateDebts();
-
-    // Only sum non-settlement expenses for total
-    const totalTripCost = expenses.filter(e => e.type !== 'settlement').reduce((acc, curr) => acc + curr.amount, 0);
-
-    const settleDebt = async (debt) => {
-        const settlement = {
-            trip_id: activeTrip.id,
-            description: `Pago a ${getName(debt.to)}`,
-            amount: debt.amount,
-            paid_by: debt.from,
-            split_with: [debt.to],
-            date: new Date().toISOString(),
-            type: "settlement"
-        };
-
-        const { data, error } = await supabase.from('expenses').insert([settlement]).select().single();
-        if (!error) {
-            setExpenses(prev => [data, ...prev]);
-        }
-    };
+    const { simplifiedDebts: debts, totalPaid, totalShare, balances } = calculateStats();
 
     if (loading && !members.length) {
         return (
@@ -234,28 +288,65 @@ export default function WalletPage() {
                     <p className="text-gray-400">Gestiona los gastos compartidos de {activeTrip.name}.</p>
                 </header>
 
+                {/* Totals Summary (New Feature) */}
+                <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl mb-6">
+                    <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                        <Receipt size={20} className="text-purple-400" />
+                        Resumen de Costes
+                    </h2>
+                    <div className="space-y-4">
+                        {Object.entries(totalPaid).map(([userId, paid]) => {
+                            if (paid === 0 && totalShare[userId] === 0) return null; // Skip if no activity
+                            const balance = balances[userId];
+                            const isPositive = balance > 0;
+                            const isZero = Math.abs(balance) < 0.01;
+
+                            return (
+                                <div key={userId} className="bg-black/20 p-4 rounded-xl border border-white/5">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="font-bold text-white flex items-center gap-2">
+                                            <User size={16} className="text-gray-400" />
+                                            {getName(userId)}
+                                        </span>
+                                        <span className={`px-2 py-1 rounded text-xs font-bold ${isZero ? 'bg-gray-500/20 text-gray-400' : (isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400')}`}>
+                                            {isZero ? 'AL DÍA' : (isPositive ? 'RECIBE' : 'DEBE')} {isZero ? '' : formatCurrency(Math.abs(balance))}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <p className="text-gray-500 text-xs">Total Pagado</p>
+                                            <p className="text-white font-medium">{formatCurrency(paid)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-gray-500 text-xs">Total Consumido</p>
+                                            <p className="text-white font-medium">{formatCurrency(totalShare[userId])}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
                 {/* Debts Summary */}
                 <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl mb-6">
-                    <h2 className="text-xl font-bold text-white mb-4">Balance de Deudas</h2>
-                    {/* ... debts logic ... */}
-                    {Object.keys(debts).length === 0 ? (
+                    <h2 className="text-xl font-bold text-white mb-4">Deudas Pendientes</h2>
+                    {debts.length === 0 ? (
                         <div className="text-center py-4 text-gray-400">
                             <CheckCircle className="mx-auto mb-2 opacity-50" size={32} />
                             <p>¡Todo al día! No hay deudas pendientes.</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {Object.entries(debts).map(([from, toMap]) => (
-                                Object.entries(toMap).map(([to, amount]) => (
-                                    <div key={`${from}-${to}`} className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium text-red-300">{getName(from)}</span>
-                                            <ArrowRight size={16} className="text-gray-500" />
-                                            <span className="font-medium text-green-300">{getName(to)}</span>
-                                        </div>
-                                        <span className="font-bold text-white">{formatCurrency(amount)}</span>
+                            {debts.map((debt, index) => (
+                                <div key={index} className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                                    <div className="flex items-center gap-2 flex-1">
+                                        <span className="font-medium text-red-300 truncate max-w-[80px] sm:max-w-none">{getName(debt.from)}</span>
+                                        <ArrowRight size={16} className="text-gray-500 flex-shrink-0" />
+                                        <span className="font-medium text-green-300 truncate max-w-[80px] sm:max-w-none">{getName(debt.to)}</span>
                                     </div>
-                                ))
+                                    <span className="font-bold text-white whitespace-nowrap ml-2">{formatCurrency(debt.amount)}</span>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -313,13 +404,7 @@ export default function WalletPage() {
                                 {members.map(m => (
                                     <button
                                         key={m.id}
-                                        onClick={() => {
-                                            if (splitWith.includes(m.id)) {
-                                                setSplitWith(splitWith.filter(id => id !== m.id));
-                                            } else {
-                                                setSplitWith([...splitWith, m.id]);
-                                            }
-                                        }}
+                                        onClick={() => toggleSplit(m.id)}
                                         className={`px-3 py-1 rounded-lg text-sm transition-all ${splitWith.includes(m.id)
                                             ? 'bg-blue-500 text-white'
                                             : 'bg-white/5 text-gray-400 hover:bg-white/10'
