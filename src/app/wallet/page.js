@@ -326,7 +326,7 @@ export default function WalletPage() {
                     if (profileData) {
                         const newCache = {};
                         activeMembers.forEach(m => newCache[m.id] = m.name);
-                        profileData.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario';
+                        profileData.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
                         setProfileCache(newCache);
                     }
                 } else {
