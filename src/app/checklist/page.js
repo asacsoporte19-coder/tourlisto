@@ -163,7 +163,24 @@ export default function ChecklistPage() {
                         <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">Checklist</h1>
                     </div>
                 </div>
-                <p className="text-gray-400">Organize your tasks for <span className="text-white font-medium">{activeTrip.name}</span></p>
+                <p className="text-gray-400 mb-6">Organiza tus tareas para <span className="text-white font-medium">{activeTrip.name}</span></p>
+
+                {/* Progress Bar */}
+                <div className="bg-black/20 rounded-xl p-4 border border-white/5">
+                    <div className="flex justify-between text-sm text-gray-400 mb-2 font-medium">
+                        <span>Progreso</span>
+                        <span className="text-white">{items.length === 0 ? 0 : Math.round((items.filter(i => i.completed).length / items.length) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-700/50 h-3 rounded-full overflow-hidden">
+                        <div
+                            className="bg-gradient-to-r from-blue-500 to-purple-500 h-full rounded-full transition-all duration-1000 ease-out"
+                            style={{ width: `${items.length === 0 ? 0 : (items.filter(i => i.completed).length / items.length) * 100}%` }}
+                        ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 text-right">
+                        {items.filter(i => i.completed).length} de {items.length} tareas completadas
+                    </p>
+                </div>
             </div>
 
             {/* Categories */}

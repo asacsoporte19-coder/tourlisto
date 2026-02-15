@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { MapPin, Music, Utensils, Bus, Bed, Star } from 'lucide-react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MapContainer, TileLayer, Marker, Tooltip, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Tooltip, Polyline, useMap, Popup } from 'react-leaflet';
 
 // Icon Mapping
 const getIconForCategory = (type) => {
@@ -213,6 +213,31 @@ export default function ItineraryMap({ items, showControls = true }) {
                                 <div className="font-bold text-black text-sm">{item.title}</div>
                                 <div className="text-xs text-gray-600">{new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </Tooltip>
+                            <Popup className="custom-popup">
+                                <div className="p-1 min-w-[200px]">
+                                    <div className="flex items-center gap-2 mb-2 border-b pb-2">
+                                        <div
+                                            style={{ backgroundColor: getColorForCategory(item.type) }}
+                                            className="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-sm"
+                                        >
+                                            {getIconForCategory(item.type)}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-base m-0 leading-tight">{item.title}</h3>
+                                            <span className="text-xs text-gray-500">{item.type}</span>
+                                        </div>
+                                    </div>
+                                    {item.description && (
+                                        <p className="text-sm text-gray-600 mb-3 bg-gray-50 p-2 rounded-lg italic border border-gray-100">
+                                            "{item.description}"
+                                        </p>
+                                    )}
+                                    <div className="flex justify-between items-center text-xs text-gray-400 mt-2 font-mono">
+                                        <span>{new Date(item.start_time).toLocaleDateString()}</span>
+                                        <span className="font-bold text-blue-500">{new Date(item.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                    </div>
+                                </div>
+                            </Popup>
                         </Marker>
                     );
                 })}

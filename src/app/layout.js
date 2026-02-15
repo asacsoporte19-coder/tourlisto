@@ -8,7 +8,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata = {
-  title: "TourListo - Lisboa",
+  title: "TourListo",
   description: "Planifica tu viaje a Lisboa",
   manifest: "/manifest.json",
   appleWebApp: {
