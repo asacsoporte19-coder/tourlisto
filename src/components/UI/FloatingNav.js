@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Compass, Map as MapIcon, Wallet, CheckSquare, Sun, Moon, Settings, Share2, User, Calendar, ListTodo, Lock } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/context/ThemeContext";
 import ShareModal from "@/components/Social/ShareModal";
 import TravelersModal from "@/components/Social/TravelersModal";
@@ -92,35 +92,39 @@ export default function FloatingNav() {
                         <Settings size={24} />
                     </button>
                 </nav>
-            </div>
-
-            {/* More Menu */}
-            {isMoreOpen && (
-                <div className="fixed bottom-28 right-8 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-white/10 rounded-2xl p-2 shadow-2xl z-[1001] flex flex-col gap-2 min-w-[200px]">
-                    <button
-                        onClick={() => { setIsTravelersOpen(true); setIsMoreOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", border: "none", background: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
-                        className="text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 rounded-lg transition-colors"
-                    >
-                        <User size={18} /> Viajeros
-                    </button>
-                    <button
-                        onClick={() => { setIsShareOpen(true); setIsMoreOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", border: "none", background: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
-                        className="text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5 rounded-lg transition-colors"
-                    >
-                        <Share2 size={18} /> Compartir
-                    </button>
-
-                    <button
-                        onClick={() => { setIsSecurityOpen(true); setIsMoreOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem 1rem", border: "none", background: "none", cursor: "pointer", width: "100%", textAlign: "left" }}
-                        className="text-gray-300 hover:bg-white/5 rounded-lg transition-colors"
-                    >
-                        <Lock size={18} /> Seguridad
-                    </button>
-                </div>
-            )}
+                {/* More Menu - Now relative to the container */}
+                <AnimatePresence>
+                    {isMoreOpen && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            transition={{ duration: 0.2 }}
+                            className="absolute bottom-full mb-4 right-0 bg-zinc-900 border border-white/10 rounded-2xl p-2 shadow-2xl flex flex-col gap-2 min-w-[200px]"
+                            style={{ zIndex: 1002 }}
+                        >
+                            <button
+                                onClick={() => { setIsTravelersOpen(true); setIsMoreOpen(false); }}
+                                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:bg-white/5 rounded-lg transition-colors w-full text-left"
+                            >
+                                <User size={18} /> Viajeros
+                            </button>
+                            <button
+                                onClick={() => { setIsShareOpen(true); setIsMoreOpen(false); }}
+                                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:bg-white/5 rounded-lg transition-colors w-full text-left"
+                            >
+                                <Share2 size={18} /> Compartir
+                            </button>
+                            <button
+                                onClick={() => { setIsSecurityOpen(true); setIsMoreOpen(false); }}
+                                className="flex items-center gap-2 px-4 py-2 text-gray-300 hover:bg-white/5 rounded-lg transition-colors w-full text-left"
+                            >
+                                <Lock size={18} /> Seguridad
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div> // Closing the main fixed container
 
             <ShareModal isOpen={isShareOpen} onClose={() => setIsShareOpen(false)} />
             <TravelersModal isOpen={isTravelersOpen} onClose={() => setIsTravelersOpen(false)} />
