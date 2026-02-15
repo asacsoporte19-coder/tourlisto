@@ -2,10 +2,96 @@
 
 import { useState, useEffect } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
-import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User } from "lucide-react";
+import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info } from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
+
+// Modal Component for Debt Details
+const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurrency }) => {
+    if (!isOpen || !debt) return null;
+
+    // Filter expenses relevant to this specific debt relationship
+    const relevantExpenses = expenses.filter(e => {
+        // We want transactions where one paid and the other was split.
+        // Cases:
+        // 1. Debtor (debt.from) paid, Creditor (debt.to) was split. -> Debtor is "recovering" or "lending".
+        // 2. Creditor (debt.to) paid, Debtor (debt.from) was split. -> Debtor is "borrowing".
+
+        const payerIsFrom = e.paid_by === debt.from;
+        const payerIsTo = e.paid_by === debt.to;
+
+        const fromInSplit = e.split_with.includes(debt.from);
+        const toInSplit = e.split_with.includes(debt.to);
+
+        return (payerIsFrom && toInSplit) || (payerIsTo && fromInSplit) || (e.type === 'settlement' && ((e.paid_by === debt.from && e.split_with.includes(debt.to)) || (e.paid_by === debt.to && e.split_with.includes(debt.from))));
+    });
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <div className="bg-gray-900 border border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl relative max-h-[80vh] overflow-y-auto">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 text-gray-400 hover:text-white"
+                >
+                    <X size={24} />
+                </button>
+
+                <h3 className="text-2xl font-bold text-white mb-1">Detalle de Deuda</h3>
+                <p className="text-gray-400 text-sm mb-6">
+                    Interacciones entre <span className="text-blue-300">{getName(debt.from)}</span> y <span className="text-green-300">{getName(debt.to)}</span>
+                </p>
+
+                <div className="space-y-4">
+                    {relevantExpenses.length === 0 ? (
+                        <p className="text-gray-500 text-center">No se encontraron gastos directos entre estas dos personas.</p>
+                    ) : (
+                        relevantExpenses.map(expense => {
+                            const isPayerFrom = expense.paid_by === debt.from;
+                            // If Debtor (From) paid: They are reducing their debt to To. (Green)
+                            // If Creditor (To) paid: They are increasing From's debt. (Red)
+
+                            let share = 0;
+                            if (expense.type === 'settlement') {
+                                share = expense.amount;
+                            } else {
+                                const splitCount = expense.split_with.length;
+                                share = expense.amount / splitCount;
+                            }
+
+                            return (
+                                <div key={expense.id} className="bg-black/40 p-3 rounded-xl border border-white/5">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <span className="font-bold text-white max-w-[70%] truncate">{expense.description}</span>
+                                        <span className="text-xs text-gray-500 whitespace-nowrap">{new Date(expense.date).toLocaleDateString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-sm">
+                                        <span className="text-gray-400 text-xs max-w-[60%]">
+                                            {isPayerFrom ? getName(debt.from) : getName(debt.to)} pagó {formatCurrency(expense.amount)}
+                                        </span>
+                                        <div className="text-right">
+                                            <span className={`font-bold block ${isPayerFrom ? 'text-green-400' : 'text-red-400'}`}>
+                                                {isPayerFrom ? 'Recupera' : 'Genera deuda'}
+                                            </span>
+                                            <span className="text-white font-mono">
+                                                {formatCurrency(share)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
+                    <span className="text-gray-400">Deuda Neta Actual</span>
+                    <span className="text-xl font-bold text-white">{formatCurrency(debt.amount)}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default function WalletPage() {
     const { user } = useAuth();
@@ -13,9 +99,10 @@ export default function WalletPage() {
 
     const [members, setMembers] = useState([]); // [{ id, name, ... }]
     const [expenses, setExpenses] = useState([]);
-
-    // Cache for all user profiles involved in expenses, not just current members
     const [profileCache, setProfileCache] = useState({});
+
+    // UI States
+    const [selectedDebt, setSelectedDebt] = useState(null);
 
     // Helper
     const formatCurrency = (amount) => {
@@ -38,83 +125,87 @@ export default function WalletPage() {
             setLoading(true);
 
             // 1. Fetch Trip Members (Active participants)
-            const { data: memberData, error: memberError } = await supabase
-                .from('trip_members')
-                .select('user_id, profiles(full_name, email)')
-                .eq('trip_id', activeTrip.id);
+            try {
+                const { data: memberData, error: memberError } = await supabase
+                    .from('trip_members')
+                    .select('user_id, profiles(full_name, email)')
+                    .eq('trip_id', activeTrip.id);
 
-            if (memberError) console.error("Error fetching members:", memberError);
+                if (memberError) throw memberError;
 
-            const activeMembers = (memberData || []).map(m => ({
-                id: m.user_id,
-                name: m.profiles?.full_name || m.profiles?.email || 'Desconocido'
-            }));
-            setMembers(activeMembers);
+                const activeMembers = (memberData || []).map(m => ({
+                    id: m.user_id,
+                    name: m.profiles?.full_name || m.profiles?.email?.split('@')[0] || 'Desconocido'
+                }));
+                setMembers(activeMembers);
 
-            // 2. Fetch Expenses
-            const { data: expenseData, error: expenseError } = await supabase
-                .from('expenses')
-                .select('*')
-                .eq('trip_id', activeTrip.id)
-                .order('date', { ascending: false });
+                // 2. Fetch Expenses
+                const { data: expenseData, error: expenseError } = await supabase
+                    .from('expenses')
+                    .select('*')
+                    .eq('trip_id', activeTrip.id)
+                    .order('date', { ascending: false });
 
-            if (expenseError) console.error("Error fetching expenses:", expenseError);
-            const loadedExpenses = expenseData || [];
-            setExpenses(loadedExpenses);
+                if (expenseError) throw expenseError;
+                const loadedExpenses = expenseData || [];
+                setExpenses(loadedExpenses);
 
-            // 3. Resolve ALL needed profiles (Active members + anyone else in expenses)
-            // Collect all unique user IDs from expenses (paid_by and split_with)
-            const allUserIds = new Set();
-            activeMembers.forEach(m => allUserIds.add(m.id));
+                // 3. Resolve ALL needed profiles (Active members + anyone else in expenses)
+                const allUserIds = new Set();
+                activeMembers.forEach(m => allUserIds.add(m.id));
 
-            loadedExpenses.forEach(e => {
-                if (e.paid_by) allUserIds.add(e.paid_by);
-                if (Array.isArray(e.split_with)) {
-                    e.split_with.forEach(id => allUserIds.add(id));
+                loadedExpenses.forEach(e => {
+                    if (e.paid_by) allUserIds.add(e.paid_by);
+                    if (Array.isArray(e.split_with)) {
+                        e.split_with.forEach(id => allUserIds.add(id));
+                    }
+                });
+
+                const knownIds = new Set(activeMembers.map(m => m.id));
+                const unknownIds = [...allUserIds].filter(id => !knownIds.has(id));
+
+                let extraProfiles = [];
+                if (unknownIds.length > 0) {
+                    const { data: profileData, error: profileError } = await supabase
+                        .from('profiles')
+                        .select('id, full_name, email')
+                        .in('id', unknownIds);
+
+                    if (profileError) console.error("Error fetching extra profiles:", profileError);
+                    if (profileData) extraProfiles = profileData;
                 }
-            });
 
-            // If we have IDs that are not in activeMembers, fetch them
-            const knownIds = new Set(activeMembers.map(m => m.id));
-            const unknownIds = [...allUserIds].filter(id => !knownIds.has(id));
+                // Build Profile Cache
+                const newCache = {};
+                activeMembers.forEach(m => newCache[m.id] = m.name);
+                extraProfiles.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
 
-            let extraProfiles = [];
-            if (unknownIds.length > 0) {
-                const { data: profileData, error: profileError } = await supabase
-                    .from('profiles')
-                    .select('id, full_name, email')
-                    .in('id', unknownIds);
+                setProfileCache(newCache);
 
-                if (profileError) console.error("Error fetching extra profiles:", profileError);
-                if (profileData) extraProfiles = profileData;
+                // Set Form Defaults
+                if (user && activeMembers.find(m => m.id === user.id)) {
+                    setPaidBy(user.id);
+                    setSplitWith(activeMembers.map(m => m.id));
+                } else if (activeMembers.length > 0) {
+                    setPaidBy(activeMembers[0].id);
+                    setSplitWith(activeMembers.map(m => m.id));
+                }
+            } catch (error) {
+                console.error("Error loading wallet data:", error);
+            } finally {
+                setLoading(false);
             }
-
-            // Build Profile Cache
-            const newCache = {};
-            // Add active members
-            activeMembers.forEach(m => newCache[m.id] = m.name);
-            // Add extra profiles
-            extraProfiles.forEach(p => newCache[p.id] = p.full_name || p.email || 'Usuario');
-
-            setProfileCache(newCache);
-
-            // Set Form Defaults
-            if (user && activeMembers.find(m => m.id === user.id)) {
-                setPaidBy(user.id);
-                setSplitWith(activeMembers.map(m => m.id));
-            } else if (activeMembers.length > 0) {
-                setPaidBy(activeMembers[0].id);
-                setSplitWith(activeMembers.map(m => m.id));
-            }
-
-            setLoading(false);
         };
 
         loadData();
     }, [activeTrip, user]);
 
     // Helpers to get name with fallback
-    const getName = (id) => profileCache[id] || members.find(m => m.id === id)?.name || 'Usuario desconocido';
+    const getName = (id) => {
+        // Special case for current user to show "Tú"
+        if (user && id === user.id) return "Tú";
+        return profileCache[id] || members.find(m => m.id === id)?.name || 'Usuario desconocido';
+    };
 
     const addExpense = async () => {
         if (!desc || !amount || splitWith.length === 0 || !paidBy) return;
@@ -154,13 +245,11 @@ export default function WalletPage() {
         }
     };
 
-    // --- Debt Logic ---
     const calculateStats = () => {
-        let balances = {}; // { userId: netBalance } (+ means owed to them, - means they owe)
-        let totalPaid = {}; // { userId: amountPaid }
-        let totalShare = {}; // { userId: amountConsumed }
+        let balances = {};
+        let totalPaid = {};
+        let totalShare = {};
 
-        // Initialize for all known people in cache to avoid missing keys
         Object.keys(profileCache).forEach(id => {
             balances[id] = 0;
             totalPaid[id] = 0;
@@ -168,17 +257,12 @@ export default function WalletPage() {
         });
 
         expenses.forEach(e => {
-            // Guard clauses for corrupt data
             if (!e.amount || isNaN(e.amount)) return;
             if (!e.paid_by) return;
 
-            // Ensure keys exist (in case cache missed something)
             if (balances[e.paid_by] === undefined) { balances[e.paid_by] = 0; totalPaid[e.paid_by] = 0; totalShare[e.paid_by] = 0; }
 
             if (e.type === 'settlement') {
-                // Settlement: A pays B. 
-                // A paid X. A's balance increases (or debt decreases).
-                // B received X. B's balance decreases (or debt increases/credit reduces).
                 if (e.split_with && e.split_with.length > 0) {
                     const receiverId = e.split_with[0];
                     if (balances[receiverId] === undefined) { balances[receiverId] = 0; totalPaid[receiverId] = 0; totalShare[receiverId] = 0; }
@@ -189,60 +273,44 @@ export default function WalletPage() {
                 return;
             }
 
-            // Normal Expense
             const paidAmount = parseFloat(e.amount);
-
-            // Track total paid
             totalPaid[e.paid_by] += paidAmount;
             balances[e.paid_by] += paidAmount;
 
-            // Split logic
             if (e.split_with && Array.isArray(e.split_with) && e.split_with.length > 0) {
                 const splitAmount = paidAmount / e.split_with.length;
 
                 e.split_with.forEach(memberId => {
                     if (balances[memberId] === undefined) { balances[memberId] = 0; totalPaid[memberId] = 0; totalShare[memberId] = 0; }
-
                     balances[memberId] -= splitAmount;
                     totalShare[memberId] += splitAmount;
                 });
             } else {
-                // Formatting error safe-guard: if no split_with, assume paid for self? 
-                // For now, if empty, we do nothing to others, payer just paid (and balance goes up? No, balance shouldn't change if for self)
-                // If paid for self: paid +100, consumed -100. Net 0.
                 totalShare[e.paid_by] += paidAmount;
                 balances[e.paid_by] -= paidAmount;
             }
         });
 
-        // Separate Debtors and Creditors for simplified debts
         let debtors = [];
         let creditors = [];
 
         Object.entries(balances).forEach(([id, amount]) => {
-            // Filter out negligible amounts
             if (amount < -0.01) debtors.push({ id, amount });
             if (amount > 0.01) creditors.push({ id, amount });
         });
 
-        debtors.sort((a, b) => a.amount - b.amount); // Ascending (most negative first)
-        creditors.sort((a, b) => b.amount - a.amount); // Descending (most positive first)
+        debtors.sort((a, b) => a.amount - b.amount);
+        creditors.sort((a, b) => b.amount - a.amount);
 
-        let i = 0;
-        let j = 0;
+        let i = 0; let j = 0;
         let simplifiedDebts = [];
 
         while (i < debtors.length && j < creditors.length) {
             let debtor = debtors[i];
             let creditor = creditors[j];
-
             let amount = Math.min(Math.abs(debtor.amount), creditor.amount);
 
-            simplifiedDebts.push({
-                from: debtor.id,
-                to: creditor.id,
-                amount: amount
-            });
+            simplifiedDebts.push({ from: debtor.id, to: creditor.id, amount: amount });
 
             debtor.amount += amount;
             creditor.amount -= amount;
@@ -264,16 +332,13 @@ export default function WalletPage() {
         );
     }
 
-    if (!activeTrip) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="bg-black/40 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-xl text-center">
-                    <h2 className="text-2xl font-bold text-white mb-2">No hay viaje seleccionado</h2>
-                    <p className="text-gray-400">Crea o selecciona un viaje para gestionar los gastos.</p>
-                </div>
+    if (!activeTrip) return (
+        <div className="min-h-screen flex items-center justify-center">
+            <div className="text-center p-8">
+                <h2 className="text-2xl font-bold text-white mb-2">No hay viaje seleccionado</h2>
             </div>
-        );
-    }
+        </div>
+    );
 
     return (
         <div style={{ paddingBottom: "120px", minHeight: "100vh" }}>
@@ -285,10 +350,9 @@ export default function WalletPage() {
                         </div>
                         <h1 className="text-4xl font-bold text-white">Billetera</h1>
                     </div>
-                    <p className="text-gray-400">Gestiona los gastos compartidos de {activeTrip.name}.</p>
                 </header>
 
-                {/* Totals Summary (New Feature) */}
+                {/* Totals Summary */}
                 <div className="bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl p-6 shadow-xl mb-6">
                     <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                         <Receipt size={20} className="text-purple-400" />
@@ -296,9 +360,9 @@ export default function WalletPage() {
                     </h2>
                     <div className="space-y-4">
                         {Object.entries(totalPaid).map(([userId, paid]) => {
-                            if (paid === 0 && totalShare[userId] === 0) return null; // Skip if no activity
-                            const balance = balances[userId];
-                            const isPositive = balance > 0;
+                            if (paid === 0 && totalShare[userId] === 0) return null;
+                            const balance = balances[userId] || 0;
+                            const isPositive = balance > 0.01;
                             const isZero = Math.abs(balance) < 0.01;
 
                             return (
@@ -319,7 +383,7 @@ export default function WalletPage() {
                                         </div>
                                         <div className="text-right">
                                             <p className="text-gray-500 text-xs">Total Consumido</p>
-                                            <p className="text-white font-medium">{formatCurrency(totalShare[userId])}</p>
+                                            <p className="text-white font-medium">{formatCurrency(totalShare[userId] || 0)}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -338,15 +402,23 @@ export default function WalletPage() {
                         </div>
                     ) : (
                         <div className="space-y-3">
+                            <p className="text-xs text-gray-400 mb-2 italic">Pulsa en una deuda para ver el detalle</p>
                             {debts.map((debt, index) => (
-                                <div key={index} className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
+                                <button
+                                    key={index}
+                                    onClick={() => setSelectedDebt(debt)}
+                                    className="w-full flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5 hover:bg-white/5 transition-colors text-left"
+                                >
                                     <div className="flex items-center gap-2 flex-1">
                                         <span className="font-medium text-red-300 truncate max-w-[80px] sm:max-w-none">{getName(debt.from)}</span>
                                         <ArrowRight size={16} className="text-gray-500 flex-shrink-0" />
                                         <span className="font-medium text-green-300 truncate max-w-[80px] sm:max-w-none">{getName(debt.to)}</span>
                                     </div>
-                                    <span className="font-bold text-white whitespace-nowrap ml-2">{formatCurrency(debt.amount)}</span>
-                                </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-white whitespace-nowrap">{formatCurrency(debt.amount)}</span>
+                                        <Info size={16} className="text-gray-500" />
+                                    </div>
+                                </button>
                             ))}
                         </div>
                     )}
@@ -391,7 +463,7 @@ export default function WalletPage() {
                                 >
                                     {members.map(m => (
                                         <option key={m.id} value={m.id} className="bg-gray-900 text-white">
-                                            {m.name}
+                                            {getName(m.id)}
                                         </option>
                                     ))}
                                 </select>
@@ -410,7 +482,7 @@ export default function WalletPage() {
                                             : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                             }`}
                                     >
-                                        {m.name}
+                                        {getName(m.id)}
                                     </button>
                                 ))}
                             </div>
@@ -458,6 +530,16 @@ export default function WalletPage() {
                     </div>
                 </div>
             </div>
+
+            <DebtDetailsModal
+                isOpen={!!selectedDebt}
+                onClose={() => setSelectedDebt(null)}
+                debt={selectedDebt}
+                expenses={expenses}
+                getName={getName}
+                formatCurrency={formatCurrency}
+            />
+
             <FloatingNav />
         </div>
     );
