@@ -38,31 +38,25 @@ export default function FloatingNav() {
                 maxWidth: "400px"
             }}>
                 <nav
-                    className="backdrop-blur-xl transition-all duration-300"
+                    className="bg-black/40 backdrop-blur-xl border border-white/10 transition-all duration-300"
                     style={{
                         padding: "0.75rem",
                         borderRadius: "2rem",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
-                        backgroundColor: theme === 'dark' ? "rgba(0, 0, 0, 0.4)" : "#ffffff", // Force clear white in light mode
-                        border: theme === 'dark' ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e5e7eb",
-                        boxShadow: theme === 'dark' ? "none" : "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)"
                     }}
                 >
                     {navItems.map(({ href, icon: Icon, label }) => {
                         const isActive = pathname === href;
-                        const iconColor = isActive
-                            ? (theme === 'dark' ? "#60a5fa" : "#3b82f6") // Blue-400 : Blue-500
-                            : (theme === 'dark' ? "#9ca3af" : "#111827"); // Gray-400 : Gray-900 (Black)
 
                         return (
                             <Link
                                 key={href}
                                 href={href}
                                 aria-label={label}
-                                className="relative p-2 flex items-center justify-center transition-colors hover:opacity-80"
-                                style={{ color: iconColor }}
+                                className={`relative p-2 flex items-center justify-center transition-colors hover:opacity-80 ${isActive ? "text-blue-400" : "text-gray-400 hover:text-gray-200"
+                                    }`}
                             >
                                 {isActive && (
                                     <motion.div
