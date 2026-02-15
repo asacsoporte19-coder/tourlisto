@@ -2,10 +2,56 @@
 
 import { useState, useEffect } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
-import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info } from "lucide-react";
+import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info, Edit2 } from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
+
+// Modal for Editing User Name
+const EditNameModal = ({ isOpen, onClose, currentName, onSave }) => {
+    const [name, setName] = useState(currentName);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        setName(currentName);
+    }, [currentName]);
+
+    const handleSubmit = async () => {
+        if (!name.trim()) return;
+        setSaving(true);
+        await onSave(name);
+        setSaving(false);
+        onClose();
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <div className="bg-gray-900 border border-white/10 rounded-3xl w-full max-w-sm p-6 shadow-2xl">
+                <h3 className="text-xl font-bold text-white mb-4">¿Cómo te llamas?</h3>
+                <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                    placeholder="Tu nombre (ej. Juanjo)"
+                    autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                    <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white">Cancelar</button>
+                    <button
+                        onClick={handleSubmit}
+                        disabled={!name.trim() || saving}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-500 disabled:opacity-50"
+                    >
+                        {saving ? 'Guardando...' : 'Guardar'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // Modal Component for Debt Details
 const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurrency }) => {
@@ -13,11 +59,6 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurr
 
     // Filter expenses relevant to this specific debt relationship
     const relevantExpenses = expenses.filter(e => {
-        // We want transactions where one paid and the other was split.
-        // Cases:
-        // 1. Debtor (debt.from) paid, Creditor (debt.to) was split. -> Debtor is "recovering" or "lending".
-        // 2. Creditor (debt.to) paid, Debtor (debt.from) was split. -> Debtor is "borrowing".
-
         const payerIsFrom = e.paid_by === debt.from;
         const payerIsTo = e.paid_by === debt.to;
 
@@ -48,9 +89,6 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurr
                     ) : (
                         relevantExpenses.map(expense => {
                             const isPayerFrom = expense.paid_by === debt.from;
-                            // If Debtor (From) paid: They are reducing their debt to To. (Green)
-                            // If Creditor (To) paid: They are increasing From's debt. (Red)
-
                             let share = 0;
                             if (expense.type === 'settlement') {
                                 share = expense.amount;
@@ -103,6 +141,7 @@ export default function WalletPage() {
 
     // UI States
     const [selectedDebt, setSelectedDebt] = useState(null);
+    const [isNameModalOpen, setIsNameModalOpen] = useState(false);
 
     // Helper
     const formatCurrency = (amount) => {
@@ -118,14 +157,35 @@ export default function WalletPage() {
 
     const [loading, setLoading] = useState(true);
 
+    // Update Name Function
+    const updateUserName = async (newName) => {
+        if (!user) return;
+
+        try {
+            const { error } = await supabase
+                .from('profiles')
+                .update({ full_name: newName })
+                .eq('id', user.id);
+
+            if (error) throw error;
+
+            setProfileCache(prev => ({ ...prev, [user.id]: newName }));
+            setMembers(prev => prev.map(m => m.id === user.id ? { ...m, name: newName } : m));
+
+        } catch (error) {
+            console.error("Error updating name:", error);
+            alert("No se pudo actualizar el nombre");
+        }
+    };
+
     useEffect(() => {
         if (!activeTrip) return;
 
         const loadData = async () => {
             setLoading(true);
 
-            // 1. Fetch Trip Members (Active participants)
             try {
+                // 1. Fetch Trip Members (Active participants)
                 const { data: memberData, error: memberError } = await supabase
                     .from('trip_members')
                     .select('user_id, profiles(full_name, email)')
@@ -150,7 +210,7 @@ export default function WalletPage() {
                 const loadedExpenses = expenseData || [];
                 setExpenses(loadedExpenses);
 
-                // 3. Resolve ALL needed profiles (Active members + anyone else in expenses)
+                // 3. Resolve ALL needed profiles
                 const allUserIds = new Set();
                 activeMembers.forEach(m => allUserIds.add(m.id));
 
@@ -170,19 +230,15 @@ export default function WalletPage() {
                         .from('profiles')
                         .select('id, full_name, email')
                         .in('id', unknownIds);
-
-                    if (profileError) console.error("Error fetching extra profiles:", profileError);
                     if (profileData) extraProfiles = profileData;
                 }
 
-                // Build Profile Cache
                 const newCache = {};
                 activeMembers.forEach(m => newCache[m.id] = m.name);
                 extraProfiles.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
 
                 setProfileCache(newCache);
 
-                // Set Form Defaults
                 if (user && activeMembers.find(m => m.id === user.id)) {
                     setPaidBy(user.id);
                     setSplitWith(activeMembers.map(m => m.id));
@@ -200,9 +256,7 @@ export default function WalletPage() {
         loadData();
     }, [activeTrip, user]);
 
-    // Helpers to get name with fallback
     const getName = (id) => {
-        // Special case for current user to show "Tú"
         if (user && id === user.id) return "Tú";
         return profileCache[id] || members.find(m => m.id === id)?.name || 'Usuario desconocido';
     };
@@ -279,7 +333,6 @@ export default function WalletPage() {
 
             if (e.split_with && Array.isArray(e.split_with) && e.split_with.length > 0) {
                 const splitAmount = paidAmount / e.split_with.length;
-
                 e.split_with.forEach(memberId => {
                     if (balances[memberId] === undefined) { balances[memberId] = 0; totalPaid[memberId] = 0; totalShare[memberId] = 0; }
                     balances[memberId] -= splitAmount;
@@ -293,63 +346,55 @@ export default function WalletPage() {
 
         let debtors = [];
         let creditors = [];
-
         Object.entries(balances).forEach(([id, amount]) => {
             if (amount < -0.01) debtors.push({ id, amount });
             if (amount > 0.01) creditors.push({ id, amount });
         });
-
         debtors.sort((a, b) => a.amount - b.amount);
         creditors.sort((a, b) => b.amount - a.amount);
 
         let i = 0; let j = 0;
         let simplifiedDebts = [];
-
         while (i < debtors.length && j < creditors.length) {
             let debtor = debtors[i];
             let creditor = creditors[j];
             let amount = Math.min(Math.abs(debtor.amount), creditor.amount);
-
             simplifiedDebts.push({ from: debtor.id, to: creditor.id, amount: amount });
-
             debtor.amount += amount;
             creditor.amount -= amount;
-
             if (Math.abs(debtor.amount) < 0.01) i++;
             if (creditor.amount < 0.01) j++;
         }
-
         return { simplifiedDebts, totalPaid, totalShare, balances };
     };
 
     const { simplifiedDebts: debts, totalPaid, totalShare, balances } = calculateStats();
 
-    if (loading && !members.length) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-white text-lg">Cargando billetera...</div>
-            </div>
-        );
-    }
-
-    if (!activeTrip) return (
-        <div className="min-h-screen flex items-center justify-center">
-            <div className="text-center p-8">
-                <h2 className="text-2xl font-bold text-white mb-2">No hay viaje seleccionado</h2>
-            </div>
-        </div>
-    );
+    if (loading && !members.length) return <div className="min-h-screen flex items-center justify-center text-white">Cargando...</div>;
+    if (!activeTrip) return <div className="min-h-screen flex items-center justify-center p-8"><div className="text-white text-center">No hay viaje seleccionado</div></div>;
 
     return (
         <div style={{ paddingBottom: "120px", minHeight: "100vh" }}>
             <div className="container" style={{ maxWidth: "600px", margin: "0 auto" }}>
                 <header style={{ padding: "2rem 0 1rem" }}>
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-3 bg-blue-500/20 rounded-2xl backdrop-blur-md">
-                            <Wallet className="text-blue-400" size={32} />
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-blue-500/20 rounded-2xl backdrop-blur-md">
+                                <Wallet className="text-blue-400" size={32} />
+                            </div>
+                            <h1 className="text-4xl font-bold text-white">Billetera</h1>
                         </div>
-                        <h1 className="text-4xl font-bold text-white">Billetera</h1>
+                        {user && (
+                            <button
+                                onClick={() => setIsNameModalOpen(true)}
+                                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-blue-300 px-4 py-2 rounded-full transition-all border border-white/10"
+                            >
+                                <Edit2 size={14} />
+                                <span className="font-medium text-sm">{profileCache[user.id] || "Soy..."}</span>
+                            </button>
+                        )}
                     </div>
+                    <p className="text-gray-400">Gestiona los gastos compartidos de {activeTrip.name}.</p>
                 </header>
 
                 {/* Totals Summary */}
@@ -430,7 +475,6 @@ export default function WalletPage() {
                         <Plus size={20} className="text-green-400" />
                         Nuevo Gasto
                     </h2>
-
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm text-gray-400 mb-1">Descripción</label>
@@ -442,7 +486,6 @@ export default function WalletPage() {
                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             />
                         </div>
-
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm text-gray-400 mb-1">Monto</label>
@@ -469,7 +512,6 @@ export default function WalletPage() {
                                 </select>
                             </div>
                         </div>
-
                         <div>
                             <label className="block text-sm text-gray-400 mb-2">Dividir entre</label>
                             <div className="flex flex-wrap gap-2">
@@ -487,7 +529,6 @@ export default function WalletPage() {
                                 ))}
                             </div>
                         </div>
-
                         <button
                             onClick={addExpense}
                             disabled={!desc || !amount || splitWith.length === 0}
@@ -538,6 +579,13 @@ export default function WalletPage() {
                 expenses={expenses}
                 getName={getName}
                 formatCurrency={formatCurrency}
+            />
+
+            <EditNameModal
+                isOpen={isNameModalOpen}
+                onClose={() => setIsNameModalOpen(false)}
+                currentName={user ? (profileCache[user.id] || "Usuario") : ""}
+                onSave={updateUserName}
             />
 
             <FloatingNav />
