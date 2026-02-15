@@ -4,7 +4,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Calendar } from "lucide-react";
 import { useState } from "react";
 
-export default function DatePickerModal({ isOpen, onClose, onConfirm, trip }) {
+interface Trip {
+    start_date: string;
+    end_date: string;
+}
+
+interface DatePickerModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: (dateTime: string) => void;
+    trip: Trip | null;
+}
+
+export default function DatePickerModal({ isOpen, onClose, onConfirm, trip }: DatePickerModalProps) {
     const [selectedDate, setSelectedDate] = useState("");
     const [selectedTime, setSelectedTime] = useState("10:00"); // Default time
 

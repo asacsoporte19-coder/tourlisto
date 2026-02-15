@@ -1,10 +1,8 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getOSMSearch, getOSMCategorySuggestions, getOSMSuggestions } from "@/lib/osm";
+import { getFallbackSuggestions } from "@/lib/fallbackSuggestions";
 
-import { NextResponse } from "next/server";
-
-// Initialize OSM Integration
-// Replacing Gemini with OpenStreetMap for real-world data
-
-export async function GET(request) {
+export async function GET(request: NextRequest) {
     try {
         const { searchParams } = new URL(request.url);
         const location = searchParams.get('location');
@@ -20,7 +18,6 @@ export async function GET(request) {
         const query = searchParams.get('q');
         if (query) {
             try {
-                const { getOSMSearch } = require('@/lib/osm');
                 const searchResults = await getOSMSearch(query, location);
                 return NextResponse.json({
                     items: searchResults,
@@ -34,7 +31,6 @@ export async function GET(request) {
         // If category is provided, fetch only that category
         if (category) {
             try {
-                const { getOSMCategorySuggestions } = require('@/lib/osm');
                 const categoryData = await getOSMCategorySuggestions(location, category);
 
                 // If OSM returns no items, throw error to trigger catch block and use fallback
@@ -47,14 +43,16 @@ export async function GET(request) {
                     items: categoryData,
                     source: 'openstreetmap'
                 });
-            } catch (error) {
+            } catch (error: any) {
                 console.log(`OSM/Category Fetch failed for ${category} (${error.message}), using fallback.`);
 
-                const { getFallbackSuggestions } = require('@/lib/fallbackSuggestions');
                 const fallback = getFallbackSuggestions(location);
+                // Type assertion/check for fallback suggestions
+                const fallbackItems = fallback.suggestions[category] || [];
+
                 return NextResponse.json({
                     category,
-                    items: fallback.suggestions[category] || [],
+                    items: fallbackItems,
                     isFallback: true,
                     source: 'local_curated'
                 });
@@ -64,7 +62,6 @@ export async function GET(request) {
         // --- LEGACY / FULL FETCH LOGIC ---
         // Try OpenStreetMap (Nominatim) first for real data
         try {
-            const { getOSMSuggestions } = require('@/lib/osm');
             const osmData = await getOSMSuggestions(location);
 
             // Check if we actually got meaningful results (need at least 3 categories with data)
@@ -85,7 +82,6 @@ export async function GET(request) {
         }
 
         // Fallback to local curated data if OSM fails or returns nothing
-        const { getFallbackSuggestions } = require('@/lib/fallbackSuggestions');
         const fallbackData = getFallbackSuggestions(location || "Destination");
 
         return NextResponse.json({
@@ -94,7 +90,7 @@ export async function GET(request) {
             source: 'local_curated'
         });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error generating suggestions:', error);
         return NextResponse.json(
             { error: 'Failed to generate suggestions', details: error.message },

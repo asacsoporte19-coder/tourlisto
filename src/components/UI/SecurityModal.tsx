@@ -2,21 +2,31 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Lock, Key, CheckCircle, AlertCircle } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function SecurityModal({ isOpen, onClose }) {
+interface SecurityModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+interface Message {
+    type: 'success' | 'error';
+    text: string;
+}
+
+export default function SecurityModal({ isOpen, onClose }: SecurityModalProps) {
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState(null); // { type: 'success' | 'error', text: '' }
+    const [message, setMessage] = useState<Message | null>(null);
     const [userEmail, setUserEmail] = useState("");
 
     useEffect(() => {
         if (isOpen) {
             const checkUser = async () => {
                 const { data: { user } } = await supabase.auth.getUser();
-                if (user) {
+                if (user && user.email) {
                     setUserEmail(user.email);
                 } else {
                     setMessage({ type: 'error', text: 'No has iniciado sesión.' });
@@ -26,7 +36,7 @@ export default function SecurityModal({ isOpen, onClose }) {
         }
     }, [isOpen]);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setMessage(null);
 
@@ -59,7 +69,7 @@ export default function SecurityModal({ isOpen, onClose }) {
                 setMessage(null);
             }, 2000);
 
-        } catch (error) {
+        } catch (error: any) {
             setMessage({ type: 'error', text: error.message || 'Error al actualizar.' });
         } finally {
             setLoading(false);

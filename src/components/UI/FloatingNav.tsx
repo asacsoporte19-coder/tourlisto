@@ -3,22 +3,28 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Compass, Map as MapIcon, Wallet, CheckSquare, Sun, Moon, Settings, Share2, User, Calendar, ListTodo, Lock } from "lucide-react";
+import { Home, Compass, Map as MapIcon, Wallet, CheckSquare, Sun, Moon, Settings, Share2, User, Calendar, ListTodo, Lock, LucideIcon } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/context/ThemeContext";
 import ShareModal from "@/components/Social/ShareModal";
 import TravelersModal from "@/components/Social/TravelersModal";
 import SecurityModal from "./SecurityModal";
 
+interface NavItem {
+    href: string;
+    icon: LucideIcon;
+    label: string;
+}
+
 export default function FloatingNav() {
     const pathname = usePathname();
     const { theme, toggleTheme } = useTheme();
-    const [isMoreOpen, setIsMoreOpen] = useState(false);
-    const [isShareOpen, setIsShareOpen] = useState(false);
-    const [isTravelersOpen, setIsTravelersOpen] = useState(false);
-    const [isSecurityOpen, setIsSecurityOpen] = useState(false);
+    const [isMoreOpen, setIsMoreOpen] = useState<boolean>(false);
+    const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
+    const [isTravelersOpen, setIsTravelersOpen] = useState<boolean>(false);
+    const [isSecurityOpen, setIsSecurityOpen] = useState<boolean>(false);
 
-    const navItems = [
+    const navItems: NavItem[] = [
         { href: "/", icon: Home, label: "Inicio" },
         { href: "/explore", icon: Compass, label: "Explorar" },
         { href: "/itinerary", icon: Calendar, label: "Plan" },
@@ -75,8 +81,6 @@ export default function FloatingNav() {
                         );
                     })}
 
-
-
                     {/* More Button */}
                     <button
                         onClick={() => setIsMoreOpen(!isMoreOpen)}
@@ -84,10 +88,10 @@ export default function FloatingNav() {
                             background: "none",
                             border: "none",
                             padding: "0.5rem",
-                            color: "#6b7280",
                             cursor: "pointer",
                             position: "relative"
                         }}
+                        className="text-gray-400 hover:text-gray-200"
                     >
                         <Settings size={24} />
                     </button>

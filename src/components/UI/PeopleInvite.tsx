@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, KeyboardEvent } from "react";
 import { UserPlus, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-export default function PeopleInvite({ people, onPeopleChange }) {
+interface PeopleInviteProps {
+    people: string[];
+    onPeopleChange: (people: string[]) => void;
+}
+
+export default function PeopleInvite({ people, onPeopleChange }: PeopleInviteProps) {
     const [email, setEmail] = useState("");
 
     const addPerson = () => {
@@ -26,11 +31,11 @@ export default function PeopleInvite({ people, onPeopleChange }) {
         setEmail("");
     };
 
-    const removePerson = (emailToRemove) => {
+    const removePerson = (emailToRemove: string) => {
         onPeopleChange(people.filter(e => e !== emailToRemove));
     };
 
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             addPerson();

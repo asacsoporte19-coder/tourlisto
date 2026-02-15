@@ -1,18 +1,55 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
 import {
     Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info, Edit2,
     Utensils, Car, Bed, Coffee, ShoppingBag, Zap, Clapperboard, HandCoins,
-    Globe, PieChart, Download
+    Globe, PieChart, Download, LucideIcon
 } from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
+// --- TYPES ---
+interface Expense {
+    id: string;
+    trip_id: string;
+    description: string;
+    amount: number; // Base amount (EUR)
+    paid_by: string;
+    split_with: string[];
+    date: string;
+    type: 'expense' | 'settlement';
+    category: string;
+    currency_code: string;
+    original_amount: number;
+    exchange_rate: number;
+    created_at?: string;
+}
+
+interface Member {
+    id: string;
+    name: string;
+    email?: string;
+}
+
+interface Debt {
+    from: string;
+    to: string;
+    amount: number;
+}
+
+interface CategoryIcons {
+    [key: string]: React.ReactNode;
+}
+
+interface CategoryLabels {
+    [key: string]: string;
+}
+
 // --- Constants ---
-const CATEGORY_ICONS = {
+const CATEGORY_ICONS: CategoryIcons = {
     food: <Utensils size={18} />,
     transport: <Car size={18} />,
     accommodation: <Bed size={18} />,
@@ -24,7 +61,7 @@ const CATEGORY_ICONS = {
     settlement: <HandCoins size={18} className="text-green-400" />
 };
 
-const CATEGORY_LABELS = {
+const CATEGORY_LABELS: CategoryLabels = {
     food: "Comida",
     transport: "Transporte",
     accommodation: "Alojamiento",
@@ -45,7 +82,7 @@ const CURRENCIES = [
 ];
 
 // --- Helpers ---
-const formatCurrency = (amount, currency = 'EUR') => {
+const formatCurrency = (amount: number, currency: string = 'EUR') => {
     if (isNaN(amount)) return "0,00";
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: currency }).format(amount);
 };
@@ -53,7 +90,14 @@ const formatCurrency = (amount, currency = 'EUR') => {
 // --- Components ---
 
 // Modal: Edit Name
-const EditNameModal = ({ isOpen, onClose, currentName, onSave }) => {
+interface EditNameModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    currentName: string;
+    onSave: (name: string) => Promise<void>;
+}
+
+const EditNameModal = ({ isOpen, onClose, currentName, onSave }: EditNameModalProps) => {
     const [name, setName] = useState(currentName);
     const [saving, setSaving] = useState(false);
 
@@ -93,16 +137,24 @@ const EditNameModal = ({ isOpen, onClose, currentName, onSave }) => {
 };
 
 // Modal: Reports & Stats
-const ReportsModal = ({ isOpen, onClose, expenses, getName, expensesTotal }) => {
+interface ReportsModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    expenses: Expense[];
+    getName: (id: string) => string;
+    expensesTotal: number;
+}
+
+const ReportsModal = ({ isOpen, onClose, expenses, getName, expensesTotal }: ReportsModalProps) => {
     if (!isOpen) return null;
 
     // Calculate Category Stats
     const categoryStats = useMemo(() => {
-        const stats = {};
+        const stats: Record<string, number> = {};
         expenses.forEach(e => {
             if (e.type === 'settlement') return;
             const cat = e.category || 'general';
-            stats[cat] = (stats[cat] || 0) + parseFloat(e.amount);
+            stats[cat] = (stats[cat] || 0) + e.amount;
         });
         // Sort by amount descending
         return Object.entries(stats).sort(([, a], [, b]) => b - a);
@@ -187,8 +239,17 @@ const ReportsModal = ({ isOpen, onClose, expenses, getName, expensesTotal }) => 
     );
 };
 
-// Modal: Debt Details (Updated)
-const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, onSettle }) => {
+// Modal: Debt Details
+interface DebtDetailsModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    debt: Debt | null;
+    expenses: Expense[];
+    getName: (id: string) => string;
+    onSettle: (debt: Debt) => Promise<void>;
+}
+
+const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, onSettle }: DebtDetailsModalProps) => {
     if (!isOpen || !debt) return null;
 
     const relevantExpenses = expenses.filter(e => {
@@ -254,15 +315,15 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, onSettle }
 
 // --- Main Page ---
 export default function WalletPage() {
-    const { user } = useAuth();
-    const { activeTrip } = useTrip();
+    const { user } = useAuth() as any;
+    const { activeTrip } = useTrip() as any;
 
-    const [members, setMembers] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [profileCache, setProfileCache] = useState({});
+    const [members, setMembers] = useState<Member[]>([]);
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [profileCache, setProfileCache] = useState<Record<string, string>>({});
 
     // UI States
-    const [selectedDebt, setSelectedDebt] = useState(null);
+    const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
     const [isNameModalOpen, setIsNameModalOpen] = useState(false);
     const [isReportsModalOpen, setIsReportsModalOpen] = useState(false);
 
@@ -271,7 +332,7 @@ export default function WalletPage() {
     const [amount, setAmount] = useState(""); // This is the Base Amount (EUR) eventually
     const [category, setCategory] = useState("general");
     const [paidBy, setPaidBy] = useState("");
-    const [splitWith, setSplitWith] = useState([]);
+    const [splitWith, setSplitWith] = useState<string[]>([]);
 
     // Multi-currency Form State
     const [currency, setCurrency] = useState("EUR");
@@ -280,8 +341,7 @@ export default function WalletPage() {
 
     const [loading, setLoading] = useState(true);
 
-    // Update names logic... (same as before)
-    const updateUserName = async (newName) => {
+    const updateUserName = async (newName: string) => {
         if (!user) return;
         try {
             const { error } = await supabase.from('profiles').update({ full_name: newName }).eq('id', user.id);
@@ -302,7 +362,7 @@ export default function WalletPage() {
             try {
                 // Fetch members
                 const { data: memberData } = await supabase.from('trip_members').select('user_id, profiles(full_name, email)').eq('trip_id', activeTrip.id);
-                const activeMembers = (memberData || []).map(m => ({
+                const activeMembers = (memberData || []).map((m: any) => ({
                     id: m.user_id,
                     name: m.profiles?.full_name || m.profiles?.email?.split('@')[0] || 'Desconocido'
                 }));
@@ -314,23 +374,23 @@ export default function WalletPage() {
                 setExpenses(loadedExpenses);
 
                 // Resolve profiles
-                const allUserIds = new Set();
+                const allUserIds = new Set<string>();
                 activeMembers.forEach(m => allUserIds.add(m.id));
-                loadedExpenses.forEach(e => {
+                loadedExpenses.forEach((e: any) => {
                     if (e.paid_by) allUserIds.add(e.paid_by);
-                    if (Array.isArray(e.split_with)) e.split_with.forEach(id => allUserIds.add(id));
+                    if (Array.isArray(e.split_with)) e.split_with.forEach((id: string) => allUserIds.add(id));
                 });
                 const unknownIds = [...allUserIds].filter(id => !activeMembers.some(m => m.id === id));
                 if (unknownIds.length > 0) {
                     const { data: profileData } = await supabase.from('profiles').select('id, full_name, email').in('id', unknownIds);
                     if (profileData) {
-                        const newCache = {};
+                        const newCache: Record<string, string> = {};
                         activeMembers.forEach(m => newCache[m.id] = m.name);
-                        profileData.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
+                        profileData.forEach((p: any) => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
                         setProfileCache(newCache);
                     }
                 } else {
-                    const newCache = {};
+                    const newCache: Record<string, string> = {};
                     activeMembers.forEach(m => newCache[m.id] = m.name);
                     setProfileCache(newCache);
                 }
@@ -351,7 +411,7 @@ export default function WalletPage() {
         loadData();
     }, [activeTrip, user]);
 
-    const getName = (id) => {
+    const getName = (id: string) => {
         if (user && id === user.id) return "Tú";
         return profileCache[id] || members.find(m => m.id === id)?.name || 'Usuario desconocido';
     };
@@ -366,9 +426,6 @@ export default function WalletPage() {
             setAmount(originalAmount);
             setExchangeRate("1");
         } else {
-            // Logic: Amount (EUR) = Original (Local) / Exchange Rate (if rate is 1 EUR = X Local)
-            // Or typically: Local / Rate -> EUR. 
-            // Example: 1 EUR = 1.05 USD. Expense 10.50 USD. 10.50 / 1.05 = 10 EUR.
             const rate = parseFloat(exchangeRate) || 1;
             const calculated = parseFloat(originalAmount) / rate;
             setAmount(calculated.toFixed(2));
@@ -398,18 +455,17 @@ export default function WalletPage() {
             console.error(error);
             alert("Error al guardar gasto");
         } else {
-            setExpenses(prev => [data, ...prev]);
+            setExpenses(prev => [data as Expense, ...prev]);
             setDesc("");
             setAmount("");
             setOriginalAmount("");
             setCategory("general");
-            // Reset currency to EUR or keep last? Usually EUR is safer default to reset.
             setCurrency("EUR");
             setExchangeRate("1");
         }
     };
 
-    const settleDebt = async (debt) => {
+    const settleDebt = async (debt: Debt) => {
         const confirmMsg = `¿Confirmas que ${getName(debt.from)} ha pagado ${formatCurrency(debt.amount)} a ${getName(debt.to)}?`;
         if (!window.confirm(confirmMsg)) return;
 
@@ -429,17 +485,17 @@ export default function WalletPage() {
 
         const { data, error } = await supabase.from('expenses').insert([settlementCheck]).select().single();
         if (!error) {
-            setExpenses(prev => [data, ...prev]);
+            setExpenses(prev => [data as Expense, ...prev]);
             setSelectedDebt(null);
         }
     };
 
-    const removeExpense = async (id) => {
+    const removeExpense = async (id: string) => {
         setExpenses(prev => prev.filter(e => e.id !== id));
         await supabase.from('expenses').delete().eq('id', id);
     };
 
-    const toggleSplit = (id) => {
+    const toggleSplit = (id: string) => {
         if (splitWith.includes(id)) {
             setSplitWith(splitWith.filter(p => p !== id));
         } else {
@@ -449,9 +505,9 @@ export default function WalletPage() {
 
     // Stats Calculations
     const calculateStats = () => {
-        let balances = {};
-        let totalPaid = {};
-        let totalShare = {};
+        let balances: Record<string, number> = {};
+        let totalPaid: Record<string, number> = {};
+        let totalShare: Record<string, number> = {};
 
         Object.keys(profileCache).forEach(id => {
             balances[id] = 0;
@@ -482,7 +538,7 @@ export default function WalletPage() {
                 return;
             }
 
-            const paidAmount = parseFloat(e.amount);
+            const paidAmount = e.amount; // Already number
             grandTotal += paidAmount;
             totalPaid[e.paid_by] += paidAmount;
             balances[e.paid_by] += paidAmount;
@@ -499,8 +555,8 @@ export default function WalletPage() {
             }
         });
 
-        let debtors = [];
-        let creditors = [];
+        let debtors: { id: string; amount: number }[] = [];
+        let creditors: { id: string; amount: number }[] = [];
         Object.entries(balances).forEach(([id, amount]) => {
             if (amount < -0.01) debtors.push({ id, amount });
             if (amount > 0.01) creditors.push({ id, amount });
@@ -509,7 +565,7 @@ export default function WalletPage() {
         creditors.sort((a, b) => b.amount - a.amount);
 
         let i = 0; let j = 0;
-        let simplifiedDebts = [];
+        let simplifiedDebts: Debt[] = [];
         while (i < debtors.length && j < creditors.length) {
             let debtor = debtors[i];
             let creditor = creditors[j];

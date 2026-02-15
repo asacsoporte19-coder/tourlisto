@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, FormEvent, MouseEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import BentoGrid from "@/components/Dashboard/BentoGrid";
 import FloatingNav from "@/components/UI/FloatingNav";
@@ -23,17 +23,30 @@ const TRIP_IMAGES = [
   "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?q=80&w=2086&auto=format&fit=crop"  // Cinque Terre
 ];
 
+// Define interfaces for context data if known, otherwise use any temporarily
+// until those contexts are migrated.
+interface Trip {
+  id: string;
+  name: string;
+  location: string | null;
+  start_date: string;
+  end_date: string;
+  share_code: string;
+  created_by: string;
+}
+
 export default function Home() {
-  const { user, loading: authLoading } = useAuth();
-  const { trips, activeTrip, setActiveTrip, loading: tripLoading, refreshTrips } = useTrip();
-  const { t } = useLanguage();
-  const [newTripName, setNewTripName] = useState("");
-  const [newTripLocation, setNewTripLocation] = useState("");
-  const [tripDates, setTripDates] = useState([null, null]);
-  const [invitedPeople, setInvitedPeople] = useState([]);
-  const [joinCode, setJoinCode] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [joining, setJoining] = useState(false);
+  const { user, loading: authLoading } = useAuth() as any;
+  const { trips, activeTrip, setActiveTrip, loading: tripLoading, refreshTrips } = useTrip() as any;
+  const { t } = useLanguage() as any;
+
+  const [newTripName, setNewTripName] = useState<string>("");
+  const [newTripLocation, setNewTripLocation] = useState<string>("");
+  const [tripDates, setTripDates] = useState<[Date | null, Date | null]>([null, null]);
+  const [invitedPeople, setInvitedPeople] = useState<string[]>([]);
+  const [joinCode, setJoinCode] = useState<string>("");
+  const [creating, setCreating] = useState<boolean>(false);
+  const [joining, setJoining] = useState<boolean>(false);
 
   if (authLoading || (user && tripLoading)) {
     return (
@@ -61,14 +74,14 @@ export default function Home() {
     );
   }
 
-  const createTrip = async (e) => {
+  const createTrip = async (e: FormEvent) => {
     e.preventDefault();
     if (!newTripName.trim()) return;
     setCreating(true);
 
     const [startDate, endDate] = tripDates;
 
-    const formatDateForDB = (date) => {
+    const formatDateForDB = (date: Date): string | null => {
       if (!date) return null;
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -76,14 +89,20 @@ export default function Home() {
       return `${year}-${month}-${day}`;
     };
 
+    const strStartDate = startDate ? formatDateForDB(startDate) : new Date().toISOString().split('T')[0];
+    const strEndDate = endDate ? formatDateForDB(endDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    // Build the insert object with explicit checks to avoid nulls where not allowed by DB if necessary.
+    // Assuming DB allows nulls for location.
+
     const { data: trip, error } = await supabase
       .from('trips')
       .insert([{
         created_by: user.id,
         name: newTripName,
         location: newTripLocation.trim() || null,
-        start_date: startDate ? formatDateForDB(startDate) : new Date().toISOString().split('T')[0],
-        end_date: endDate ? formatDateForDB(endDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        start_date: strStartDate,
+        end_date: strEndDate
       }])
       .select()
       .single();
@@ -130,14 +149,14 @@ export default function Home() {
     setCreating(false);
   };
 
-  const joinTrip = async (e) => {
+  const joinTrip = async (e: FormEvent) => {
     e.preventDefault();
     if (!joinCode.trim()) return;
     setJoining(true);
 
     const { data: trips, error } = await supabase.from('trips').select('id').eq('share_code', joinCode);
 
-    if (error || !trips.length) {
+    if (error || !trips || !trips.length) {
       alert("Invalid code or trip not found");
     } else {
       const trip = trips[0];
@@ -159,7 +178,7 @@ export default function Home() {
     await supabase.auth.signOut();
   };
 
-  const deleteTrip = async (tripId, e) => {
+  const deleteTrip = async (tripId: string, e: MouseEvent) => {
     e.stopPropagation(); // Prevent card click
     if (!confirm(t('dashboard.confirmDelete'))) return;
 
@@ -197,7 +216,7 @@ export default function Home() {
           {/* Trip Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
             <AnimatePresence>
-              {trips.length > 0 ? trips.map((trip, index) => (
+              {trips && trips.length > 0 ? trips.map((trip: Trip, index: number) => (
                 <motion.div
                   key={trip.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -283,7 +302,7 @@ export default function Home() {
                 <DateRangePicker
                   startDate={tripDates[0]}
                   endDate={tripDates[1]}
-                  onDateChange={(start, end) => setTripDates([start, end])}
+                  onDateChange={(start: Date | null, end: Date | null) => setTripDates([start, end])}
                 />
 
                 {/* People Invite */}

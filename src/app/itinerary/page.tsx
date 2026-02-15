@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, MouseEvent } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
 import { useTrip } from "@/context/TripContext";
 import { supabase } from "@/lib/supabaseClient";
-import { Music, MapPin, Trash2, GripVertical, Pencil, Plus, Utensils, Bus, Bed, List, Map as MapIcon } from "lucide-react";
+import { Music, MapPin, Trash2, GripVertical, Pencil, Plus, Utensils, Bus, Bed, List, Map as MapIcon, LucideIcon } from "lucide-react";
 import {
     DndContext,
     closestCorners,
@@ -13,8 +13,10 @@ import {
     useSensor,
     useSensors,
     DragOverlay,
-    defaultDropAnimationSideEffects,
     useDroppable,
+    DragStartEvent,
+    DragOverEvent,
+    DragEndEvent,
 } from "@dnd-kit/core";
 import {
     arrayMove,
@@ -32,8 +34,28 @@ const ItineraryMap = dynamic(() => import("@/components/Map/ItineraryMap"), {
     loading: () => <div className="w-full h-full bg-white/5 animate-pulse rounded-3xl"></div>
 });
 
+// TYPES
+interface ItineraryItem {
+    id: string;
+    trip_id: string;
+    title: string;
+    description?: string;
+    type: string;
+    start_time: string;
+    created_at?: string;
+    coordinates?: { lat: number; lng: number }; // Assuming potential future use
+}
+
+interface PlanData {
+    id?: string;
+    title: string;
+    description: string;
+    type: string;
+    start_time: string;
+}
+
 // Helper for icons based on type
-const getTypeIcon = (type) => {
+const getTypeIcon = (type: string) => {
     switch (type) {
         case 'Food': return <Utensils size={20} />;
         case 'Transport': return <Bus size={20} />;
@@ -43,7 +65,7 @@ const getTypeIcon = (type) => {
     }
 };
 
-const getTypeColor = (type) => {
+const getTypeColor = (type: string) => {
     switch (type) {
         case 'Food': return 'bg-orange-500/10 text-orange-400';
         case 'Transport': return 'bg-green-500/10 text-green-400';
@@ -54,7 +76,14 @@ const getTypeColor = (type) => {
 };
 
 // Sortable Item Component
-function SortableItem({ id, item, onDelete, onEdit }) {
+interface SortableItemProps {
+    id: string;
+    item: ItineraryItem;
+    onDelete: (id: string) => void;
+    onEdit: (item: ItineraryItem) => void;
+}
+
+function SortableItem({ id, item, onDelete, onEdit }: SortableItemProps) {
     const {
         attributes,
         listeners,
@@ -134,7 +163,15 @@ function SortableItem({ id, item, onDelete, onEdit }) {
     );
 }
 
-function DaySection({ dateKey, items = [], onDelete, onEdit, onAdd }) {
+interface DaySectionProps {
+    dateKey: string;
+    items: ItineraryItem[];
+    onDelete: (id: string) => void;
+    onEdit: (item: ItineraryItem) => void;
+    onAdd: (date: string) => void;
+}
+
+function DaySection({ dateKey, items = [], onDelete, onEdit, onAdd }: DaySectionProps) {
     const { setNodeRef } = useDroppable({
         id: dateKey,
     });
@@ -198,20 +235,20 @@ function DaySection({ dateKey, items = [], onDelete, onEdit, onAdd }) {
 }
 
 export default function ItineraryPage() {
-    const { activeTrip } = useTrip();
+    const { activeTrip } = useTrip() as any;
     // itinerary = { "2024-05-20": [item1, item2], "2024-05-21": [] }
-    const [itinerary, setItinerary] = useState({});
-    const [activeId, setActiveId] = useState(null); // ID of item currently being dragged
-    const [loading, setLoading] = useState(true);
+    const [itinerary, setItinerary] = useState<Record<string, ItineraryItem[]>>({});
+    const [activeId, setActiveId] = useState<string | null>(null); // ID of item currently being dragged
+    const [loading, setLoading] = useState<boolean>(true);
 
     // Custom Plan Modal State
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingItem, setEditingItem] = useState(null);
-    const [selectedDateForAdd, setSelectedDateForAdd] = useState(null);
+    const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+    const [editingItem, setEditingItem] = useState<ItineraryItem | null>(null);
+    const [selectedDateForAdd, setSelectedDateForAdd] = useState<string | null>(null);
 
     // View State
-    const [viewMode, setViewMode] = useState('list'); // 'list' | 'map'
-    const [activeDayKey, setActiveDayKey] = useState(null); // For map view filtering
+    const [viewMode, setViewMode] = useState<'list' | 'map'>('list'); // 'list' | 'map'
+    const [activeDayKey, setActiveDayKey] = useState<string | null>(null); // For map view filtering
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), // Require movement of 8px to start drag
@@ -225,7 +262,7 @@ export default function ItineraryPage() {
             setLoading(true);
             const start = new Date(activeTrip.start_date);
             const end = new Date(activeTrip.end_date);
-            const days = {};
+            const days: Record<string, ItineraryItem[]> = {};
 
             // Initialize days
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -246,10 +283,10 @@ export default function ItineraryPage() {
 
             if (data) {
                 // First pass: group by date
-                data.forEach(item => {
+                data.forEach((item: any) => {
                     const dateKey = item.start_time ? item.start_time.split('T')[0] : null;
                     if (dateKey && days.hasOwnProperty(dateKey)) {
-                        days[dateKey].push(item);
+                        days[dateKey].push(item as ItineraryItem);
                     }
                 });
             }
@@ -262,19 +299,19 @@ export default function ItineraryPage() {
     }, [activeTrip]);
 
     // Modal Handlers
-    const handleAddPlan = (dateKey) => {
+    const handleAddPlan = (dateKey: string) => {
         setEditingItem(null);
         setSelectedDateForAdd(dateKey);
         setIsModalOpen(true);
     };
 
-    const handleEditPlan = (item) => {
+    const handleEditPlan = (item: ItineraryItem) => {
         setEditingItem(item);
         setSelectedDateForAdd(null);
         setIsModalOpen(true);
     };
 
-    const handleSavePlan = async (planData) => {
+    const handleSavePlan = async (planData: PlanData) => {
         // If updating
         if (planData.id) {
             const { error } = await supabase
@@ -288,18 +325,11 @@ export default function ItineraryPage() {
                 .eq('id', planData.id);
 
             if (!error) {
-                // Refresh local state 
-                // Simple strategy: Just update the specific item found in any day
-                // But changing time might move it to another day!
-                // So easiest is to remove from old place and insert into new place manually or just refetch.
-                // Refetch is safest to ensure order.
-                // let's try manual update for speed but handle day change.
-
                 setItinerary(prev => {
-                    const newState = { ...prev };
+                    const newState: Record<string, ItineraryItem[]> = { ...prev };
 
                     // 1. Remove from old location
-                    let oldItem = null;
+                    let oldItem: ItineraryItem | null = null;
                     Object.keys(newState).forEach(date => {
                         const idx = newState[date].findIndex(i => i.id === planData.id);
                         if (idx !== -1) {
@@ -310,10 +340,22 @@ export default function ItineraryPage() {
 
                     // 2. Add to new location (date)
                     const newDateKey = planData.start_time.split('T')[0];
-                    if (newState[newDateKey]) {
-                        // Merge old item props with overrides
-                        const newItem = { ...oldItem, ...planData };
-                        newState[newDateKey] = [...newState[newDateKey], newItem].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+                    if (newState[newDateKey] && oldItem) {
+                        const safeOldItem: any = oldItem || {};
+                        const safePlanData: any = planData || {};
+                        const newItem = { ...safeOldItem, ...safePlanData };
+
+                        // Ensure start_time is valid string
+                        if (!newItem.start_time) newItem.start_time = new Date().toISOString();
+
+                        const currentItems = newState[newDateKey] || [];
+                        const updatedItems = [...currentItems, newItem];
+
+                        newState[newDateKey] = updatedItems.sort((a: any, b: any) => {
+                            const timeA = new Date(a.start_time).getTime();
+                            const timeB = new Date(b.start_time).getTime();
+                            return timeA - timeB;
+                        });
                     }
 
                     return newState;
@@ -333,12 +375,12 @@ export default function ItineraryPage() {
                 .select();
 
             if (!error && data) {
-                const newItem = data[0];
+                const newItem = data[0] as ItineraryItem;
                 const dateKey = newItem.start_time.split('T')[0];
 
                 setItinerary(prev => ({
                     ...prev,
-                    [dateKey]: [...(prev[dateKey] || []), newItem].sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+                    [dateKey]: [...(prev[dateKey] || []), newItem].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
                 }));
             }
         }
@@ -346,24 +388,24 @@ export default function ItineraryPage() {
 
     // --- Drag Handlers (Keep existing logic) ---
 
-    const findContainer = (id) => {
+    const findContainer = (id: string): string | undefined => {
         if (id in itinerary) return id;
         return Object.keys(itinerary).find((key) =>
             itinerary[key].find((item) => item.id === id)
         );
     };
 
-    const handleDragStart = (event) => {
-        setActiveId(event.active.id);
+    const handleDragStart = (event: DragStartEvent) => {
+        setActiveId(event.active.id as string);
     };
 
-    const handleDragOver = (event) => {
+    const handleDragOver = (event: DragOverEvent) => {
         const { active, over } = event;
-        const overId = over?.id;
+        const overId = over?.id as string;
 
         if (!overId || active.id === overId) return;
 
-        const activeContainer = findContainer(active.id);
+        const activeContainer = findContainer(active.id as string);
         const overContainer = (overId in itinerary)
             ? overId
             : findContainer(overId);
@@ -409,19 +451,25 @@ export default function ItineraryPage() {
         });
     };
 
-    const handleDragEnd = async (event) => {
+    const handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event;
-        const activeContainer = findContainer(active.id); // Based on current state (could be different from start container due to DragOver)
+
+        if (!over) {
+            setActiveId(null);
+            return;
+        }
+
+        const activeContainer = findContainer(active.id as string); // Based on current state (could be different from start container due to DragOver)
 
         // If dropped outside or invalid
-        if (!activeContainer || !over) {
+        if (!activeContainer) {
             setActiveId(null);
             return;
         }
 
         const overContainer = (over.id in itinerary)
-            ? over.id
-            : findContainer(over.id);
+            ? over.id as string
+            : findContainer(over.id as string);
 
         if (activeContainer && overContainer) {
             const activeIndex = itinerary[activeContainer].findIndex((i) => i.id === active.id);
@@ -479,13 +527,14 @@ export default function ItineraryPage() {
 
             for (let i = movedItemIndex; i < updatedItems.length - 1; i++) {
                 const currentItem = updatedItems[i];
+                // @ts-ignore
                 const nextItem = updatedItems[i + 1];
 
                 const currentEndGuess = new Date(new Date(currentItem.start_time).getTime() + 30 * 60 * 1000); // Assume min 30m duration
                 const nextStart = new Date(nextItem.start_time);
 
                 // If next item starts BEFORE current item (or too close), push it forward
-                if (nextStart <= currentItem.start_time || nextStart < currentEndGuess) {
+                if (nextStart.getTime() <= new Date(currentItem.start_time).getTime() || nextStart.getTime() < currentEndGuess.getTime()) {
                     // Set next item to start 30 mins after current item starts (or 1h? let's do 30m to minimize displacement)
                     // User said: "at least at that hour or with a 30 min lapse"
                     const adjustedTime = new Date(new Date(currentItem.start_time).getTime() + 30 * 60 * 1000);
@@ -517,7 +566,7 @@ export default function ItineraryPage() {
         setActiveId(null);
     };
 
-    const deleteItem = async (itemId) => {
+    const deleteItem = async (itemId: string) => {
         if (!confirm("¿Seguro que quieres borrar este plan?")) return;
 
         const { error } = await supabase.from('itinerary_items').delete().eq('id', itemId);

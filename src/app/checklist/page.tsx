@@ -3,20 +3,36 @@
 import { useState, useEffect } from "react";
 import { useTrip } from "@/context/TripContext";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Trash2, Check, Edit2, X, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Check, Edit2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import FloatingNav from "@/components/UI/FloatingNav";
 
+interface ChecklistCategory {
+    id: string;
+    trip_id: string;
+    name: string;
+    position: number;
+    color?: string; // Optional as not always returned or used
+}
+
+interface ChecklistItem {
+    id: string;
+    trip_id: string;
+    category_id: string | null;
+    text: string;
+    completed: boolean;
+}
+
 export default function ChecklistPage() {
     const { activeTrip } = useTrip();
     const router = useRouter();
-    const [categories, setCategories] = useState([]);
-    const [items, setItems] = useState([]);
+    const [categories, setCategories] = useState<ChecklistCategory[]>([]);
+    const [items, setItems] = useState<ChecklistItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [newCategoryName, setNewCategoryName] = useState("");
     const [showNewCategory, setShowNewCategory] = useState(false);
-    const [editingCategory, setEditingCategory] = useState(null);
+    const [editingCategory, setEditingCategory] = useState<string | null>(null);
 
     useEffect(() => {
         if (!activeTrip) return;
@@ -30,14 +46,14 @@ export default function ChecklistPage() {
         const { data: categoriesData, error: catError } = await supabase
             .from('checklist_categories')
             .select('*')
-            .eq('trip_id', activeTrip.id)
+            .eq('trip_id', activeTrip!.id)
             .order('position');
 
         // Fetch items
         const { data: itemsData, error: itemsError } = await supabase
             .from('checklist_items')
             .select('*')
-            .eq('trip_id', activeTrip.id);
+            .eq('trip_id', activeTrip!.id);
 
         if (catError) console.error(catError);
         else setCategories(categoriesData || []);
@@ -55,7 +71,7 @@ export default function ChecklistPage() {
         const { data, error } = await supabase
             .from('checklist_categories')
             .insert([{
-                trip_id: activeTrip.id,
+                trip_id: activeTrip!.id,
                 name: newCategoryName,
                 position: categories.length
             }])
@@ -71,7 +87,7 @@ export default function ChecklistPage() {
         }
     };
 
-    const updateCategory = async (id, name) => {
+    const updateCategory = async (id: string, name: string) => {
         const { error } = await supabase
             .from('checklist_categories')
             .update({ name })
@@ -85,7 +101,7 @@ export default function ChecklistPage() {
         }
     };
 
-    const deleteCategory = async (id) => {
+    const deleteCategory = async (id: string) => {
         if (!confirm("Delete this category? Items will remain uncategorized.")) return;
 
         const { error } = await supabase
@@ -101,13 +117,13 @@ export default function ChecklistPage() {
     };
 
     // Item management
-    const addItem = async (categoryId, text) => {
+    const addItem = async (categoryId: string | null, text: string) => {
         if (!text.trim()) return;
 
         const { data, error } = await supabase
             .from('checklist_items')
             .insert([{
-                trip_id: activeTrip.id,
+                trip_id: activeTrip!.id,
                 category_id: categoryId,
                 text,
                 completed: false
@@ -122,7 +138,7 @@ export default function ChecklistPage() {
         }
     };
 
-    const toggleItem = async (id, currentStatus) => {
+    const toggleItem = async (id: string, currentStatus: boolean) => {
         setItems(items.map(item => item.id === id ? { ...item, completed: !currentStatus } : item));
 
         const { error } = await supabase
@@ -136,7 +152,7 @@ export default function ChecklistPage() {
         }
     };
 
-    const deleteItem = async (id) => {
+    const deleteItem = async (id: string) => {
         setItems(items.filter(item => item.id !== id));
         const { error } = await supabase.from('checklist_items').delete().eq('id', id);
         if (error) console.error(error);
@@ -205,12 +221,17 @@ export default function ChecklistPage() {
                 {/* Uncategorized items */}
                 {items.filter(item => !item.category_id).length > 0 && (
                     <CategorySection
-                        category={{ id: null, name: "Uncategorized", color: "#6b7280" }}
+                        category={{ id: "uncategorized", trip_id: activeTrip.id, name: "Uncategorized", position: -1, color: "#6b7280" }}
                         items={items.filter(item => !item.category_id)}
                         onAddItem={(text) => addItem(null, text)}
                         onToggleItem={toggleItem}
                         onDeleteItem={deleteItem}
                         isUncategorized
+                        // Dummy props for required fields that won't be used for uncategorized
+                        onUpdateCategory={() => { }}
+                        onDeleteCategory={() => { }}
+                        editingCategory={null}
+                        setEditingCategory={() => { }}
                     />
                 )}
 
@@ -262,6 +283,19 @@ export default function ChecklistPage() {
     );
 }
 
+interface CategorySectionProps {
+    category: ChecklistCategory;
+    items: ChecklistItem[];
+    onAddItem: (text: string) => void;
+    onToggleItem: (id: string, currentStatus: boolean) => void;
+    onDeleteItem: (id: string) => void;
+    onUpdateCategory: (name: string) => void;
+    onDeleteCategory: () => void;
+    editingCategory: string | null;
+    setEditingCategory: (id: string | null) => void;
+    isUncategorized?: boolean;
+}
+
 // Category Section Component
 function CategorySection({
     category,
@@ -274,7 +308,7 @@ function CategorySection({
     editingCategory,
     setEditingCategory,
     isUncategorized
-}) {
+}: CategorySectionProps) {
     const [newItemText, setNewItemText] = useState("");
     const [showAddItem, setShowAddItem] = useState(false);
     const [editName, setEditName] = useState(category.name);

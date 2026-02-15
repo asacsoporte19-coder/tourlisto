@@ -1,10 +1,34 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Calendar, Clock, Type, AlignLeft, MapPin, Music, Utensils, Bus, Bed, Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
+import { X, Calendar, Clock, AlignLeft, MapPin, Music, Utensils, Bus, Bed, Sparkles, LucideIcon } from "lucide-react";
+import { useState, useEffect, FormEvent } from "react";
 
-export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, initialDate }) {
+// --- Types ---
+interface PlanData {
+    id?: string;
+    title: string;
+    description: string;
+    type: string;
+    start_time: string;
+}
+
+interface CustomPlanModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (data: PlanData) => void;
+    editingItem: Partial<PlanData> | null;
+    initialDate: string | null;
+}
+
+interface Category {
+    id: string;
+    label: string;
+    icon: LucideIcon;
+    color: string;
+}
+
+export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, initialDate }: CustomPlanModalProps) {
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [category, setCategory] = useState("Activity");
@@ -29,10 +53,8 @@ export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, 
                 const match = editingItem.description?.match(coordRegex);
                 if (match) {
                     setCoordinates(`${match[1]}, ${match[2]}`);
-                    // Clean description for display (optional, but might be confusing if we hide it. Let's keep it simple for now and just extract it)
-                    // If we remove it from description box, we must ensure we add it back on save.
-                    // Let's remove it from the description box to avoid duplication if the user edits it.
-                    setDescription(editingItem.description.replace(coordRegex, '').trim());
+                    // Clean description for display
+                    setDescription((editingItem.description || "").replace(coordRegex, '').trim());
                 } else {
                     setCoordinates("");
                 }
@@ -48,7 +70,7 @@ export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, 
         }
     }, [isOpen, editingItem, initialDate]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         const dateTimeString = `${date}T${time}:00`;
 
@@ -58,7 +80,7 @@ export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, 
             finalDescription = `${description}\n\nCoordinates: ${coordinates.trim()}`.trim();
         }
 
-        const planData = {
+        const planData: PlanData = {
             id: editingItem?.id,
             title,
             description: finalDescription,
@@ -69,7 +91,7 @@ export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, 
         onClose();
     };
 
-    const categories = [
+    const categories: Category[] = [
         { id: 'Activity', label: 'Actividad', icon: MapPin, color: 'from-blue-500/20 to-blue-600/20 text-blue-300 border-blue-500/30' },
         { id: 'Food', label: 'Comida', icon: Utensils, color: 'from-orange-500/20 to-orange-600/20 text-orange-300 border-orange-500/30' },
         { id: 'Evento', label: 'Evento', icon: Music, color: 'from-purple-500/20 to-purple-600/20 text-purple-300 border-purple-500/30' },
@@ -247,7 +269,7 @@ export default function CustomPlanModal({ isOpen, onClose, onSave, editingItem, 
 }
 
 // Simple icon for header
-function PlusIcon({ size, className }) {
+function PlusIcon({ size, className }: { size: number, className: string }) {
     return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
             <line x1="12" y1="5" x2="12" y2="19"></line>

@@ -7,6 +7,13 @@ import CustomPlanModal from "@/components/UI/CustomPlanModal";
 import { Loader, Plus, MapPin } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
+interface PlanData {
+    title: string;
+    description: string;
+    type: string;
+    start_time: string;
+}
+
 export default function ExplorePage() {
     const { activeTrip, loading } = useTrip();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,7 +36,7 @@ export default function ExplorePage() {
         );
     }
 
-    const handleSavePlan = async (planData) => {
+    const handleSavePlan = async (planData: PlanData) => {
         try {
             const newItem = {
                 trip_id: activeTrip.id,
@@ -84,6 +91,7 @@ export default function ExplorePage() {
                 onClose={() => setIsModalOpen(false)}
                 onSave={handleSavePlan}
                 initialDate={activeTrip.start_date}
+                editingItem={null}
             />
 
             <FloatingNav />
