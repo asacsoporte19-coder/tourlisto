@@ -51,14 +51,10 @@ export default function FloatingNav() {
                                 key={href}
                                 href={href}
                                 aria-label={label}
-                                style={{
-                                    position: "relative",
-                                    padding: "0.5rem",
-                                    color: isActive ? "var(--primary)" : "#1f2937", // Gray-800 for better visibility
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center"
-                                }}
+                                className={`relative p-2 flex items-center justify-center transition-colors ${isActive
+                                        ? "text-blue-500 dark:text-blue-400"
+                                        : "text-gray-900 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                    }`}
                             >
                                 {isActive && (
                                     <motion.div
