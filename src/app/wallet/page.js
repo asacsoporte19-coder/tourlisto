@@ -2,12 +2,39 @@
 
 import { useState, useEffect } from "react";
 import FloatingNav from "@/components/UI/FloatingNav";
-import { Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info, Edit2 } from "lucide-react";
+import {
+    Wallet, Plus, Trash2, ArrowRight, CheckCircle, Receipt, User, X, Info, Edit2,
+    Utensils, Car, Bed, Coffee, ShoppingBag, Zap, Clapperboard, HandCoins
+} from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 
-// Modal for Editing User Name
+// Category Icons Map
+const CATEGORY_ICONS = {
+    food: <Utensils size={18} />,
+    transport: <Car size={18} />,
+    accommodation: <Bed size={18} />,
+    drinks: <Coffee size={18} />,
+    shopping: <ShoppingBag size={18} />,
+    activities: <Clapperboard size={18} />,
+    bills: <Zap size={18} />,
+    general: <Receipt size={18} />,
+    settlement: <HandCoins size={18} className="text-green-400" />
+};
+
+const CATEGORY_LABELS = {
+    food: "Comida",
+    transport: "Transporte",
+    accommodation: "Alojamiento",
+    drinks: "Bebidas",
+    shopping: "Compras",
+    activities: "Actividades",
+    bills: "Facturas",
+    general: "Otros"
+};
+
+// Modal for Editing User Name (unchanged)
 const EditNameModal = ({ isOpen, onClose, currentName, onSave }) => {
     const [name, setName] = useState(currentName);
     const [saving, setSaving] = useState(false);
@@ -53,8 +80,8 @@ const EditNameModal = ({ isOpen, onClose, currentName, onSave }) => {
     );
 };
 
-// Modal Component for Debt Details
-const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurrency }) => {
+// Modal Component for Debt Details with Settlement Button
+const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurrency, onSettle }) => {
     if (!isOpen || !debt) return null;
 
     // Filter expenses relevant to this specific debt relationship
@@ -70,7 +97,7 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurr
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-            <div className="bg-gray-900 border border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl relative max-h-[80vh] overflow-y-auto">
+            <div className="bg-gray-900 border border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl relative max-h-[80vh] overflow-y-auto flex flex-col">
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 text-gray-400 hover:text-white"
@@ -83,29 +110,36 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurr
                     Interacciones entre <span className="text-blue-300">{getName(debt.from)}</span> y <span className="text-green-300">{getName(debt.to)}</span>
                 </p>
 
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 overflow-y-auto mb-4">
                     {relevantExpenses.length === 0 ? (
                         <p className="text-gray-500 text-center">No se encontraron gastos directos entre estas dos personas.</p>
                     ) : (
                         relevantExpenses.map(expense => {
                             const isPayerFrom = expense.paid_by === debt.from;
+                            const isSettlement = expense.type === 'settlement';
                             let share = 0;
-                            if (expense.type === 'settlement') {
-                                share = expense.amount;
+
+                            if (isSettlement) {
+                                share = expense.amount; // Full amount in settlement
                             } else {
                                 const splitCount = expense.split_with.length;
                                 share = expense.amount / splitCount;
                             }
 
                             return (
-                                <div key={expense.id} className="bg-black/40 p-3 rounded-xl border border-white/5">
+                                <div key={expense.id} className={`p-3 rounded-xl border ${isSettlement ? 'bg-green-900/20 border-green-500/30' : 'bg-black/40 border-white/5'}`}>
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className="font-bold text-white max-w-[70%] truncate">{expense.description}</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-gray-400">
+                                                {CATEGORY_ICONS[expense.category || (isSettlement ? 'settlement' : 'general')]}
+                                            </span>
+                                            <span className="font-bold text-white max-w-[180px] truncate">{expense.description}</span>
+                                        </div>
                                         <span className="text-xs text-gray-500 whitespace-nowrap">{new Date(expense.date).toLocaleDateString()}</span>
                                     </div>
                                     <div className="flex justify-between items-center text-sm">
                                         <span className="text-gray-400 text-xs max-w-[60%]">
-                                            {isPayerFrom ? getName(debt.from) : getName(debt.to)} pagó {formatCurrency(expense.amount)}
+                                            {isPayerFrom ? getName(debt.from) : getName(debt.to)} {isSettlement ? 'pagó deuda por' : 'pagó'} {formatCurrency(expense.amount)}
                                         </span>
                                         <div className="text-right">
                                             <span className={`font-bold block ${isPayerFrom ? 'text-green-400' : 'text-red-400'}`}>
@@ -122,9 +156,22 @@ const DebtDetailsModal = ({ isOpen, onClose, debt, expenses, getName, formatCurr
                     )}
                 </div>
 
-                <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
-                    <span className="text-gray-400">Deuda Neta Actual</span>
-                    <span className="text-xl font-bold text-white">{formatCurrency(debt.amount)}</span>
+                <div className="mt-auto pt-4 border-t border-white/10">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="text-gray-400">Deuda Neta Actual</span>
+                        <span className="text-xl font-bold text-white">{formatCurrency(debt.amount)}</span>
+                    </div>
+
+                    <button
+                        onClick={() => onSettle(debt)}
+                        className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all"
+                    >
+                        <HandCoins size={20} />
+                        Saldar Deuda Completa ({formatCurrency(debt.amount)})
+                    </button>
+                    <p className="text-center text-xs text-gray-500 mt-2">
+                        Esto registrará un pago de {getName(debt.from)} a {getName(debt.to)}.
+                    </p>
                 </div>
             </div>
         </div>
@@ -135,7 +182,7 @@ export default function WalletPage() {
     const { user } = useAuth();
     const { activeTrip } = useTrip();
 
-    const [members, setMembers] = useState([]); // [{ id, name, ... }]
+    const [members, setMembers] = useState([]);
     const [expenses, setExpenses] = useState([]);
     const [profileCache, setProfileCache] = useState({});
 
@@ -143,7 +190,7 @@ export default function WalletPage() {
     const [selectedDebt, setSelectedDebt] = useState(null);
     const [isNameModalOpen, setIsNameModalOpen] = useState(false);
 
-    // Helper
+    // Helpers
     const formatCurrency = (amount) => {
         if (isNaN(amount)) return "0,00 €";
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -152,26 +199,19 @@ export default function WalletPage() {
     // Form
     const [desc, setDesc] = useState("");
     const [amount, setAmount] = useState("");
-    const [paidBy, setPaidBy] = useState(""); // User ID
-    const [splitWith, setSplitWith] = useState([]); // Array of User IDs
+    const [category, setCategory] = useState("general");
+    const [paidBy, setPaidBy] = useState("");
+    const [splitWith, setSplitWith] = useState([]);
 
     const [loading, setLoading] = useState(true);
 
-    // Update Name Function
     const updateUserName = async (newName) => {
         if (!user) return;
-
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ full_name: newName })
-                .eq('id', user.id);
-
+            const { error } = await supabase.from('profiles').update({ full_name: newName }).eq('id', user.id);
             if (error) throw error;
-
             setProfileCache(prev => ({ ...prev, [user.id]: newName }));
             setMembers(prev => prev.map(m => m.id === user.id ? { ...m, name: newName } : m));
-
         } catch (error) {
             console.error("Error updating name:", error);
             alert("No se pudo actualizar el nombre");
@@ -183,16 +223,9 @@ export default function WalletPage() {
 
         const loadData = async () => {
             setLoading(true);
-
             try {
-                // 1. Fetch Trip Members (Active participants)
-                const { data: memberData, error: memberError } = await supabase
-                    .from('trip_members')
-                    .select('user_id, profiles(full_name, email)')
-                    .eq('trip_id', activeTrip.id);
-
-                if (memberError) throw memberError;
-
+                // 1. Fetch Members
+                const { data: memberData } = await supabase.from('trip_members').select('user_id, profiles(full_name, email)').eq('trip_id', activeTrip.id);
                 const activeMembers = (memberData || []).map(m => ({
                     id: m.user_id,
                     name: m.profiles?.full_name || m.profiles?.email?.split('@')[0] || 'Desconocido'
@@ -200,45 +233,34 @@ export default function WalletPage() {
                 setMembers(activeMembers);
 
                 // 2. Fetch Expenses
-                const { data: expenseData, error: expenseError } = await supabase
-                    .from('expenses')
-                    .select('*')
-                    .eq('trip_id', activeTrip.id)
-                    .order('date', { ascending: false });
-
-                if (expenseError) throw expenseError;
+                const { data: expenseData } = await supabase.from('expenses').select('*').eq('trip_id', activeTrip.id).order('date', { ascending: false });
                 const loadedExpenses = expenseData || [];
                 setExpenses(loadedExpenses);
 
-                // 3. Resolve ALL needed profiles
+                // 3. Resolve Profiles
                 const allUserIds = new Set();
                 activeMembers.forEach(m => allUserIds.add(m.id));
-
                 loadedExpenses.forEach(e => {
                     if (e.paid_by) allUserIds.add(e.paid_by);
-                    if (Array.isArray(e.split_with)) {
-                        e.split_with.forEach(id => allUserIds.add(id));
-                    }
+                    if (Array.isArray(e.split_with)) e.split_with.forEach(id => allUserIds.add(id));
                 });
+                const unknownIds = [...allUserIds].filter(id => !activeMembers.some(m => m.id === id));
 
-                const knownIds = new Set(activeMembers.map(m => m.id));
-                const unknownIds = [...allUserIds].filter(id => !knownIds.has(id));
-
-                let extraProfiles = [];
                 if (unknownIds.length > 0) {
-                    const { data: profileData, error: profileError } = await supabase
-                        .from('profiles')
-                        .select('id, full_name, email')
-                        .in('id', unknownIds);
-                    if (profileData) extraProfiles = profileData;
+                    const { data: profileData } = await supabase.from('profiles').select('id, full_name, email').in('id', unknownIds);
+                    if (profileData) {
+                        const newCache = {};
+                        activeMembers.forEach(m => newCache[m.id] = m.name);
+                        profileData.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
+                        setProfileCache(newCache);
+                    }
+                } else {
+                    const newCache = {};
+                    activeMembers.forEach(m => newCache[m.id] = m.name);
+                    setProfileCache(newCache);
                 }
 
-                const newCache = {};
-                activeMembers.forEach(m => newCache[m.id] = m.name);
-                extraProfiles.forEach(p => newCache[p.id] = p.full_name || p.email?.split('@')[0] || 'Usuario');
-
-                setProfileCache(newCache);
-
+                // Defaults
                 if (user && activeMembers.find(m => m.id === user.id)) {
                     setPaidBy(user.id);
                     setSplitWith(activeMembers.map(m => m.id));
@@ -252,7 +274,6 @@ export default function WalletPage() {
                 setLoading(false);
             }
         };
-
         loadData();
     }, [activeTrip, user]);
 
@@ -271,7 +292,8 @@ export default function WalletPage() {
             paid_by: paidBy,
             split_with: splitWith,
             date: new Date().toISOString(),
-            type: 'expense'
+            type: 'expense',
+            category: category
         };
 
         const { data, error } = await supabase.from('expenses').insert([newExpense]).select().single();
@@ -283,6 +305,33 @@ export default function WalletPage() {
             setExpenses(prev => [data, ...prev]);
             setDesc("");
             setAmount("");
+            setCategory("general");
+        }
+    };
+
+    const settleDebt = async (debt) => {
+        const confirmMsg = `¿Confirmas que ${getName(debt.from)} ha pagado ${formatCurrency(debt.amount)} a ${getName(debt.to)}?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        const settlementCheck = {
+            trip_id: activeTrip.id,
+            description: `Pago de deuda (${getName(debt.from)} -> ${getName(debt.to)})`,
+            amount: debt.amount,
+            paid_by: debt.from, // The debtor PAYS
+            split_with: [debt.to], // The creditor RECEIVES (is the only beneficiary)
+            date: new Date().toISOString(),
+            type: 'settlement',
+            category: 'settlement'
+        };
+
+        const { data, error } = await supabase.from('expenses').insert([settlementCheck]).select().single();
+
+        if (error) {
+            console.error(error);
+            alert("Error al saldar deuda");
+        } else {
+            setExpenses(prev => [data, ...prev]);
+            setSelectedDebt(null); // Close modal
         }
     };
 
@@ -299,6 +348,7 @@ export default function WalletPage() {
         }
     };
 
+    // Calculate Debt Logic (Unchanged core logic)
     const calculateStats = () => {
         let balances = {};
         let totalPaid = {};
@@ -310,17 +360,30 @@ export default function WalletPage() {
             totalShare[id] = 0;
         });
 
+        // Ensure all paid_by and split_with users are in balances map if not already
+        expenses.forEach(e => {
+            if (e.paid_by && balances[e.paid_by] === undefined) { balances[e.paid_by] = 0; totalPaid[e.paid_by] = 0; totalShare[e.paid_by] = 0; }
+            if (Array.isArray(e.split_with)) {
+                e.split_with.forEach(id => {
+                    if (balances[id] === undefined) { balances[id] = 0; totalPaid[id] = 0; totalShare[id] = 0; }
+                });
+            }
+        });
+
         expenses.forEach(e => {
             if (!e.amount || isNaN(e.amount)) return;
             if (!e.paid_by) return;
 
-            if (balances[e.paid_by] === undefined) { balances[e.paid_by] = 0; totalPaid[e.paid_by] = 0; totalShare[e.paid_by] = 0; }
-
             if (e.type === 'settlement') {
+                // Settlement logic: Payer gives money to Receiver.
+                // Payer balance increases (they are 'owed' less or 'owe' less) -> wait.
+                // In our system: One who pays gets positive balance (is owed money). One who consumes gets negative.
+                // Settlement: "A pays B". A is Payer. B is SplitWith[0].
+                // This means A gave money to B. A 'paid' for something B received.
+                // So A gets +Amount, B gets -Amount.
+                // If A owed B, A's balance (negative) becomes closer to 0. B's balance (positive) becomes closer to 0.
                 if (e.split_with && e.split_with.length > 0) {
                     const receiverId = e.split_with[0];
-                    if (balances[receiverId] === undefined) { balances[receiverId] = 0; totalPaid[receiverId] = 0; totalShare[receiverId] = 0; }
-
                     balances[e.paid_by] += e.amount;
                     balances[receiverId] -= e.amount;
                 }
@@ -334,7 +397,6 @@ export default function WalletPage() {
             if (e.split_with && Array.isArray(e.split_with) && e.split_with.length > 0) {
                 const splitAmount = paidAmount / e.split_with.length;
                 e.split_with.forEach(memberId => {
-                    if (balances[memberId] === undefined) { balances[memberId] = 0; totalPaid[memberId] = 0; totalShare[memberId] = 0; }
                     balances[memberId] -= splitAmount;
                     totalShare[memberId] += splitAmount;
                 });
@@ -447,7 +509,7 @@ export default function WalletPage() {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            <p className="text-xs text-gray-400 mb-2 italic">Pulsa en una deuda para ver el detalle</p>
+                            <p className="text-xs text-gray-400 mb-2 italic">Pulsa en una deuda para ver el detalle y saldarla</p>
                             {debts.map((debt, index) => (
                                 <button
                                     key={index}
@@ -486,6 +548,31 @@ export default function WalletPage() {
                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                             />
                         </div>
+
+                        {/* Category Selector */}
+                        <div>
+                            <label className="block text-sm text-gray-400 mb-2">Categoría</label>
+                            <div className="flex flex-wrap gap-2">
+                                {Object.entries(CATEGORY_LABELS).map(([key, label]) => {
+                                    if (key === 'settlement') return null;
+                                    const isSelected = category === key;
+                                    return (
+                                        <button
+                                            key={key}
+                                            onClick={() => setCategory(key)}
+                                            className={`p-2 rounded-xl flex items-center gap-2 text-sm transition-all border ${isSelected
+                                                ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-500/20'
+                                                : 'bg-black/20 border-white/5 text-gray-400 hover:bg-white/10'}`}
+                                            title={label}
+                                        >
+                                            {CATEGORY_ICONS[key]}
+                                            <span className={isSelected ? 'inline' : 'hidden sm:inline'}>{label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm text-gray-400 mb-1">Monto</label>
@@ -494,7 +581,7 @@ export default function WalletPage() {
                                     value={amount}
                                     onChange={e => setAmount(e.target.value)}
                                     placeholder="0.00"
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all number-input"
                                 />
                             </div>
                             <div>
@@ -544,11 +631,16 @@ export default function WalletPage() {
                     <h2 className="text-xl font-bold text-white mb-4">Historial</h2>
                     <div className="space-y-4">
                         {expenses.map(expense => (
-                            <div key={expense.id} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-xl transition-colors group">
-                                <div>
-                                    <div className="font-bold text-white">{expense.description}</div>
-                                    <div className="text-sm text-gray-400">
-                                        Pagado por <span className="text-blue-300">{getName(expense.paid_by)}</span>
+                            <div key={expense.id} className={`flex items-center justify-between p-3 hover:bg-white/5 rounded-xl transition-colors group ${expense.type === 'settlement' ? 'bg-green-900/10 border border-green-500/20' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-full ${expense.type === 'settlement' ? 'bg-green-500/20 text-green-400' : 'bg-gray-700/50 text-gray-300'}`}>
+                                        {CATEGORY_ICONS[expense.category || (expense.type === 'settlement' ? 'settlement' : 'general')]}
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-white">{expense.description}</div>
+                                        <div className="text-sm text-gray-400">
+                                            Pagado por <span className="text-blue-300">{getName(expense.paid_by)}</span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-4">
@@ -579,6 +671,7 @@ export default function WalletPage() {
                 expenses={expenses}
                 getName={getName}
                 formatCurrency={formatCurrency}
+                onSettle={settleDebt}
             />
 
             <EditNameModal
