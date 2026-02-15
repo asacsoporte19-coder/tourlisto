@@ -37,7 +37,7 @@ export default function FloatingNav() {
                 width: "90%",
                 maxWidth: "400px"
             }}>
-                <nav className="bg-white/80 dark:bg-black/40 backdrop-blur-md border border-gray-200 dark:border-white/10 shadow-2xl dark:shadow-none" style={{
+                <nav className="bg-white/95 dark:bg-black/40 backdrop-blur-xl border border-gray-200/50 dark:border-white/10 shadow-xl dark:shadow-none transition-all duration-300" style={{
                     padding: "0.75rem",
                     borderRadius: "2rem",
                     display: "flex",
